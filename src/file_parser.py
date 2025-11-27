@@ -176,10 +176,13 @@ class CreditFileParser:
         
         # Ensure required columns exist
         df_standardized = self._ensure_required_columns(df_standardized)
-        
+
         # Clean and validate data
         df_standardized = self._clean_data(df_standardized)
-        
+
+        # Remove any duplicate columns that may have been created
+        df_standardized = df_standardized.loc[:, ~df_standardized.columns.duplicated(keep='first')]
+
         return df_standardized
     
     def _detect_file_type(self, df: pd.DataFrame) -> str:
@@ -398,6 +401,9 @@ class CreditFileParser:
 
             # Clean data
             df = self._clean_data(df)
+
+            # Remove any duplicate columns
+            df = df.loc[:, ~df.columns.duplicated(keep='first')]
 
             return df
         finally:
