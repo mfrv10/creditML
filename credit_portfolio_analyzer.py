@@ -24,6 +24,7 @@ from src.ml_models import CreditRiskModel
 from src.portfolio_metrics import PortfolioAnalyzer
 from src.report_generator import ReportGenerator
 from src.column_mapper import ColumnMapper
+from src.debt_pricing import DebtPortfolioPricer, compare_portfolios
 import os
 from dotenv import load_dotenv
 
@@ -32,6 +33,19 @@ load_dotenv()
 
 def main():
     st.title("🏦 Automated Credit Portfolio Analyzer")
+
+    # Mode selector
+    mode = st.radio(
+        "Select Analysis Mode:",
+        ["📊 Active Portfolio Analysis", "💰 Debt Collection Pricing"],
+        horizontal=True
+    )
+
+    if mode == "💰 Debt Collection Pricing":
+        debt_collection_pricing_app()
+        return
+
+    # Original app continues for Active Portfolio Analysis
     st.markdown("Upload your credit portfolio file and get instant analysis, risk scoring, and valuation")
     
     # Sidebar
@@ -559,6 +573,382 @@ def main():
             - Portfolio valuation
             - Executive PDF report
             """)
+
+
+def debt_collection_pricing_app():
+    """
+    Debt Collection Portfolio Pricing Mode
+    Price charged-off debt portfolios using P/C ratio and DCF methodologies
+    """
+    st.markdown("## 💰 Debt Collection Portfolio Pricing")
+    st.markdown("Price charged-off debt portfolios using industry-standard P/C ratio and DCF methodologies")
+
+    # Sidebar settings
+    with st.sidebar:
+        st.header("⚙️ Pricing Parameters")
+
+        # Portfolio type
+        portfolio_type = st.selectbox(
+            "Portfolio Type",
+            ['consumer_unsecured', 'consumer_secured', 'auto_loans', 'credit_cards', 'medical'],
+            format_func=lambda x: x.replace('_', ' ').title()
+        )
+
+        # Servicing costs
+        servicing_costs = st.slider(
+            "Servicing Costs (%)",
+            min_value=10,
+            max_value=50,
+            value=30,
+            step=5,
+            help="Operating costs as % of gross collections"
+        ) / 100
+
+        # Target IRR
+        target_irr = st.slider(
+            "Target IRR (%)",
+            min_value=10,
+            max_value=30,
+            value=18,
+            step=1,
+            help="Minimum required annual return"
+        ) / 100
+
+        st.markdown("---")
+        st.markdown("### 📖 About This Tool")
+        st.markdown("""
+        **Pricing Methods:**
+        - **P/C Ratio**: Market-based pricing
+        - **DCF**: Cash flow-based pricing
+
+        **Collection Curves:**
+        Standard industry curves by portfolio type
+
+        **IRR Verification:**
+        Confirms bid meets target returns
+        """)
+
+    # Main content tabs
+    tab1, tab2, tab3 = st.tabs(["📝 Single Portfolio", "📊 Portfolio Comparison", "🔬 Sensitivity Analysis"])
+
+    with tab1:
+        st.markdown("### Portfolio Parameters")
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            portfolio_name = st.text_input("Portfolio Name", value="Spain Consumer Portfolio Nov 2025")
+            face_value = st.number_input(
+                "Face Value (€)",
+                min_value=100_000,
+                max_value=1_000_000_000,
+                value=50_000_000,
+                step=1_000_000,
+                format="%d"
+            )
+
+        with col2:
+            recovery_rate = st.slider(
+                "Recovery Rate (%)",
+                min_value=10,
+                max_value=60,
+                value=30,
+                step=5,
+                help="Expected % of face value to collect"
+            ) / 100
+
+            # Option to use custom P/C ratio
+            use_custom_pc = st.checkbox("Use Custom P/C Ratio")
+            if use_custom_pc:
+                custom_pc_ratio = st.slider("Custom P/C Ratio (%)", 20, 80, 50, 5) / 100
+            else:
+                custom_pc_ratio = None
+
+        with col3:
+            # Option to use custom collection curve
+            use_custom_curve = st.checkbox("Use Custom Collection Curve")
+            if use_custom_curve:
+                st.markdown("**Collection % by Year:**")
+                year1 = st.slider("Year 1 (%)", 20, 70, 40, 5) / 100
+                year2 = st.slider("Year 2 (%)", 10, 50, 30, 5) / 100
+                year3 = st.slider("Year 3 (%)", 5, 40, 20, 5) / 100
+                year4 = st.slider("Year 4 (%)", 0, 30, 10, 5) / 100
+
+                total_pct = (year1 + year2 + year3 + year4) * 100
+                if abs(total_pct - 100) > 0.01:
+                    st.warning(f"⚠️ Total: {total_pct:.0f}% (should be 100%)")
+
+                custom_curve = {1: year1, 2: year2, 3: year3, 4: year4}
+            else:
+                custom_curve = None
+
+        # Calculate button
+        if st.button("💰 Calculate Pricing", type="primary", use_container_width=True):
+            with st.spinner("Calculating pricing..."):
+                # Initialize pricer
+                pricer = DebtPortfolioPricer(
+                    face_value=face_value,
+                    recovery_rate=recovery_rate,
+                    portfolio_type=portfolio_type,
+                    servicing_costs=servicing_costs,
+                    target_irr=target_irr
+                )
+
+                # Calculate both methods
+                results = pricer.calculate_both_methods(
+                    custom_curve=custom_curve,
+                    custom_pc_ratio=custom_pc_ratio
+                )
+
+                # Display results
+                st.markdown("---")
+                st.markdown(f"## 📊 Pricing Results: {portfolio_name}")
+
+                # Summary metrics
+                col1, col2, col3, col4 = st.columns(4)
+
+                with col1:
+                    st.metric("Face Value", f"€{face_value:,.0f}")
+                    st.metric("ERC", f"€{results['portfolio_info']['erc']:,.0f}")
+
+                with col2:
+                    st.metric("P/C Method", f"€{results['pc_method']['price']:,.0f}")
+                    st.caption(f"{results['pc_method']['price_as_pct_of_face']:.1%} of Face")
+
+                with col3:
+                    st.metric("DCF Method", f"€{results['dcf_method']['price']:,.0f}")
+                    st.caption(f"{results['dcf_method']['price_as_pct_of_face']:.1%} of Face")
+
+                with col4:
+                    st.metric(
+                        "RECOMMENDED BID",
+                        f"€{results['recommendation']['bid_amount']:,.0f}",
+                        delta=f"{results['recommendation']['margin']:.1%} vs Target IRR" if results['recommendation']['margin'] else None
+                    )
+                    decision_color = "green" if results['recommendation']['decision'] == 'BUY' else "red"
+                    st.markdown(f"<h3 style='color: {decision_color};'>{'✓ BUY' if results['recommendation']['decision'] == 'BUY' else '✗ PASS'}</h3>", unsafe_allow_html=True)
+
+                # Detailed results
+                st.markdown("---")
+                st.markdown("### 📋 Detailed Analysis")
+
+                detail_col1, detail_col2 = st.columns(2)
+
+                with detail_col1:
+                    st.markdown("#### P/C Ratio Method")
+                    st.write(f"**P/C Ratio:** {results['pc_method']['pc_ratio']:.1%}")
+                    st.write(f"**Formula:** Price = ERC × P/C Ratio")
+                    st.write(f"**Calculation:** €{results['portfolio_info']['erc']:,.0f} × {results['pc_method']['pc_ratio']:.1%}")
+                    st.write(f"**Price:** €{results['pc_method']['price']:,.0f}")
+
+                with detail_col2:
+                    st.markdown("#### DCF Method")
+                    st.write(f"**Target IRR:** {results['dcf_method']['target_irr']:.1%}")
+                    st.write(f"**Collection Curve:** {len(results['dcf_method']['collection_curve'])} years")
+                    st.write(f"**Net Present Value:** €{results['dcf_method']['total_pv']:,.0f}")
+
+                # DCF Cash Flow Table
+                st.markdown("#### Yearly Cash Flow Analysis")
+                st.dataframe(
+                    results['dcf_method']['yearly_cashflows'].style.format({
+                        'gross_collections': '€{:,.0f}',
+                        'servicing_costs': '€{:,.0f}',
+                        'net_collections': '€{:,.0f}',
+                        'present_value': '€{:,.0f}',
+                        'collection_pct': '{:.1%}',
+                        'discount_factor': '{:.3f}'
+                    }),
+                    use_container_width=True
+                )
+
+                # IRR Verification
+                st.markdown("---")
+                st.markdown("### ✅ IRR Verification")
+                irr_col1, irr_col2, irr_col3 = st.columns(3)
+
+                with irr_col1:
+                    st.metric("Expected IRR", f"{results['recommendation']['expected_irr']:.1%}")
+
+                with irr_col2:
+                    st.metric("Target IRR", f"{target_irr:.1%}")
+
+                with irr_col3:
+                    margin_value = results['recommendation']['margin']
+                    st.metric(
+                        "Margin",
+                        f"{margin_value:+.1%}" if margin_value else "N/A",
+                        delta="Above Target" if margin_value and margin_value > 0 else "Below Target"
+                    )
+
+                # Monthly Collection Schedule
+                st.markdown("---")
+                st.markdown("### 📅 Monthly Collection Schedule")
+
+                monthly_schedule = pricer.create_monthly_schedule(custom_curve)
+
+                # Plot cumulative collections
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=monthly_schedule['month'],
+                    y=monthly_schedule['cumulative_net'],
+                    mode='lines',
+                    name='Cumulative Collections',
+                    fill='tozeroy'
+                ))
+                fig.update_layout(
+                    title='Cumulative Net Collections Over Time',
+                    xaxis_title='Month',
+                    yaxis_title='Cumulative Collections (€)',
+                    hovermode='x unified'
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+                # Show first 12 months
+                st.markdown("**First 12 Months:**")
+                st.dataframe(
+                    monthly_schedule.head(12).style.format({
+                        'gross_collections': '€{:,.0f}',
+                        'servicing_costs': '€{:,.0f}',
+                        'net_collections': '€{:,.0f}',
+                        'cumulative_net': '€{:,.0f}',
+                        'cumulative_pct_of_erc': '{:.1%}'
+                    }),
+                    use_container_width=True
+                )
+
+    with tab2:
+        st.markdown("### Compare Multiple Portfolios")
+        st.markdown("Add multiple portfolios to compare pricing side-by-side")
+
+        num_portfolios = st.number_input("Number of Portfolios", 2, 5, 2)
+
+        portfolios = []
+        for i in range(num_portfolios):
+            st.markdown(f"#### Portfolio {i+1}")
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                name = st.text_input(f"Name", value=f"Portfolio {i+1}", key=f"name_{i}")
+                face = st.number_input(f"Face Value (€)", min_value=100_000, value=10_000_000 * (i+1), key=f"face_{i}", format="%d")
+
+            with col2:
+                recovery = st.slider(f"Recovery %", 10, 60, 30-i*5, 5, key=f"recovery_{i}") / 100
+
+            with col3:
+                ptype = st.selectbox(
+                    f"Type",
+                    ['consumer_unsecured', 'consumer_secured', 'credit_cards'],
+                    key=f"type_{i}",
+                    format_func=lambda x: x.replace('_', ' ').title()
+                )
+
+            portfolios.append({
+                'name': name,
+                'face_value': face,
+                'recovery_rate': recovery,
+                'portfolio_type': ptype,
+                'servicing_costs': servicing_costs,
+                'target_irr': target_irr
+            })
+
+        if st.button("Compare Portfolios", type="primary"):
+            comparison_df = compare_portfolios(portfolios)
+
+            st.markdown("### Comparison Results")
+            st.dataframe(
+                comparison_df.style.format({
+                    'Face Value': '€{:,.0f}',
+                    'Recovery Rate': '{:.1%}',
+                    'ERC': '€{:,.0f}',
+                    'P/C Price': '€{:,.0f}',
+                    'DCF Price': '€{:,.0f}',
+                    'Recommended Bid': '€{:,.0f}',
+                    'Expected IRR': '{:.1%}'
+                }),
+                use_container_width=True
+            )
+
+            # Bar chart comparison
+            fig = go.Figure()
+            fig.add_trace(go.Bar(name='P/C Price', x=comparison_df['Portfolio'], y=comparison_df['P/C Price']))
+            fig.add_trace(go.Bar(name='DCF Price', x=comparison_df['Portfolio'], y=comparison_df['DCF Price']))
+            fig.add_trace(go.Bar(name='Recommended', x=comparison_df['Portfolio'], y=comparison_df['Recommended Bid']))
+            fig.update_layout(title='Pricing Comparison', barmode='group')
+            st.plotly_chart(fig, use_container_width=True)
+
+    with tab3:
+        st.markdown("### Sensitivity Analysis")
+        st.markdown("Test how pricing changes with different recovery rates and target IRRs")
+
+        sens_face = st.number_input("Face Value (€)", min_value=1_000_000, value=50_000_000, key="sens_face", format="%d")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            recovery_min = st.slider("Min Recovery %", 10, 50, 20) / 100
+            recovery_max = st.slider("Max Recovery %", 20, 60, 40) / 100
+
+        with col2:
+            irr_min = st.slider("Min Target IRR %", 5, 25, 12) / 100
+            irr_max = st.slider("Max Target IRR %", 10, 30, 24) / 100
+
+        steps = st.slider("Analysis Steps", 3, 7, 5)
+
+        if st.button("Run Sensitivity Analysis", type="primary"):
+            pricer = DebtPortfolioPricer(
+                face_value=sens_face,
+                recovery_rate=0.30,  # Base case
+                portfolio_type=portfolio_type,
+                servicing_costs=servicing_costs,
+                target_irr=target_irr
+            )
+
+            sens_df = pricer.sensitivity_analysis(
+                recovery_range=(recovery_min, recovery_max),
+                irr_range=(irr_min, irr_max),
+                steps=steps
+            )
+
+            # Pivot for heatmap
+            pivot_data = sens_df.pivot(
+                index='target_irr',
+                columns='recovery_rate',
+                values='recommended_bid'
+            )
+
+            # Heatmap
+            fig = go.Figure(data=go.Heatmap(
+                z=pivot_data.values,
+                x=[f"{r:.1%}" for r in pivot_data.columns],
+                y=[f"{i:.1%}" for i in pivot_data.index],
+                colorscale='RdYlGn',
+                text=pivot_data.values,
+                texttemplate='€%{text:,.0f}',
+                textfont={"size": 10},
+                colorbar=dict(title="Bid Amount (€)")
+            ))
+            fig.update_layout(
+                title='Recommended Bid Sensitivity',
+                xaxis_title='Recovery Rate',
+                yaxis_title='Target IRR',
+                height=500
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+            # Data table
+            st.markdown("### Detailed Results")
+            st.dataframe(
+                sens_df.style.format({
+                    'recovery_rate': '{:.1%}',
+                    'target_irr': '{:.1%}',
+                    'erc': '€{:,.0f}',
+                    'pc_price': '€{:,.0f}',
+                    'dcf_price': '€{:,.0f}',
+                    'recommended_bid': '€{:,.0f}',
+                    'expected_irr': '{:.1%}'
+                }),
+                use_container_width=True
+            )
+
 
 if __name__ == "__main__":
     main()
