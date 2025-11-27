@@ -103,18 +103,35 @@ class CreditRiskModel:
     
     def _engineer_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """Create predictive features from raw data"""
+        # Remove duplicate columns if they exist
+        df = df.loc[:, ~df.columns.duplicated()]
+
         features = pd.DataFrame()
-        
+
+        # Helper function to safely get column
+        def safe_get_column(df, col_name):
+            """Safely get a column, handling duplicates and missing columns."""
+            if col_name not in df.columns:
+                return None
+            col_data = df[col_name]
+            # If it's a DataFrame (duplicate columns), take the first
+            if isinstance(col_data, pd.DataFrame):
+                return col_data.iloc[:, 0]
+            return col_data
+
         # Basic features
-        if 'credit_limit' in df.columns:
-            features['credit_limit'] = df['credit_limit']
-        
-        if 'age' in df.columns:
-            features['age'] = df['age']
-        
+        credit_limit = safe_get_column(df, 'credit_limit')
+        if credit_limit is not None:
+            features['credit_limit'] = credit_limit
+
+        age = safe_get_column(df, 'age')
+        if age is not None:
+            features['age'] = age
+
         # Utilization features
-        if 'bill_amount_1' in df.columns and 'credit_limit' in df.columns:
-            features['utilization_rate'] = df['bill_amount_1'] / (df['credit_limit'] + 1)
+        bill_amount_1 = safe_get_column(df, 'bill_amount_1')
+        if bill_amount_1 is not None and credit_limit is not None:
+            features['utilization_rate'] = bill_amount_1 / (credit_limit + 1)
             features['utilization_rate'] = features['utilization_rate'].clip(0, 2)
         else:
             features['utilization_rate'] = 0.5
@@ -155,12 +172,17 @@ class CreditRiskModel:
             features['payment_to_bill_ratio'] = 1.0
         
         # Demographic features
-        if 'sex' in df.columns:
-            features['sex'] = df['sex']
-        if 'education' in df.columns:
-            features['education'] = df['education']
-        if 'marriage' in df.columns:
-            features['marriage'] = df['marriage']
+        sex = safe_get_column(df, 'sex')
+        if sex is not None:
+            features['sex'] = sex
+
+        education = safe_get_column(df, 'education')
+        if education is not None:
+            features['education'] = education
+
+        marriage = safe_get_column(df, 'marriage')
+        if marriage is not None:
+            features['marriage'] = marriage
         
         # Fill any NaNs
         features = features.fillna(0)
@@ -180,23 +202,39 @@ class CreditRiskModel:
         """
         Calculate risk scores using business rules when model isn't available
         """
+        # Remove duplicate columns if they exist
+        df = df.loc[:, ~df.columns.duplicated()]
+
         scores = np.zeros(len(df))
-        
+
+        # Helper function to safely get column
+        def safe_get_column(df, col_name):
+            """Safely get a column, handling duplicates and missing columns."""
+            if col_name not in df.columns:
+                return None
+            col_data = df[col_name]
+            if isinstance(col_data, pd.DataFrame):
+                return col_data.iloc[:, 0]
+            return col_data
+
         # Utilization penalty
-        if 'bill_amount_1' in df.columns and 'credit_limit' in df.columns:
-            utilization = df['bill_amount_1'] / (df['credit_limit'] + 1)
+        bill_amount_1 = safe_get_column(df, 'bill_amount_1')
+        credit_limit = safe_get_column(df, 'credit_limit')
+        if bill_amount_1 is not None and credit_limit is not None:
+            utilization = bill_amount_1 / (credit_limit + 1)
             scores += utilization.clip(0, 1) * 0.4
-        
+
         # Payment status penalty
         pay_cols = [c for c in df.columns if 'pay_status' in c.lower()]
         if pay_cols:
             avg_pay_status = df[pay_cols].mean(axis=1)
             # Higher payment status means more delinquent
             scores += (avg_pay_status / 6).clip(0, 1) * 0.5
-        
+
         # Age factor (younger = slightly riskier)
-        if 'age' in df.columns:
-            age_factor = (50 - df['age']).clip(0, 30) / 30 * 0.1
+        age = safe_get_column(df, 'age')
+        if age is not None:
+            age_factor = (50 - age).clip(0, 30) / 30 * 0.1
             scores += age_factor
         
         # Normalize to 0-1
