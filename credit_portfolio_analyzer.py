@@ -25,6 +25,7 @@ from src.portfolio_metrics import PortfolioAnalyzer
 from src.report_generator import ReportGenerator
 from src.column_mapper import ColumnMapper
 from src.debt_pricing import DebtPortfolioPricer, compare_portfolios
+from src.portfolio_due_diligence import PortfolioDueDiligence
 import os
 from dotenv import load_dotenv
 
@@ -629,7 +630,12 @@ def debt_collection_pricing_app():
         """)
 
     # Main content tabs
-    tab1, tab2, tab3 = st.tabs(["📝 Single Portfolio", "📊 Portfolio Comparison", "🔬 Sensitivity Analysis"])
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "📝 Single Portfolio",
+        "📊 Portfolio Comparison",
+        "🔬 Sensitivity Analysis",
+        "🚨 Due Diligence"
+    ])
 
     with tab1:
         st.markdown("### Portfolio Parameters")
@@ -948,6 +954,266 @@ def debt_collection_pricing_app():
                 }),
                 use_container_width=True
             )
+
+    with tab4:
+        st.markdown("### Portfolio Due Diligence")
+        st.markdown("Upload a portfolio file to analyze composition and detect red flags")
+
+        # File uploader
+        uploaded_file = st.file_uploader(
+            "Upload Portfolio Data (CSV/Excel)",
+            type=['csv', 'xlsx', 'xls'],
+            key="dd_upload"
+        )
+
+        if uploaded_file is not None:
+            # Load data
+            try:
+                if uploaded_file.name.endswith('.csv'):
+                    df_portfolio = pd.read_csv(uploaded_file)
+                else:
+                    df_portfolio = pd.read_excel(uploaded_file)
+
+                st.success(f"✅ Loaded {len(df_portfolio):,} accounts")
+
+                # Show preview
+                with st.expander("📋 Data Preview"):
+                    st.dataframe(df_portfolio.head(10), use_container_width=True)
+
+                # Configuration
+                col1, col2, col3 = st.columns(3)
+
+                with col1:
+                    base_recovery = st.slider(
+                        "Base Recovery Rate (%)",
+                        min_value=10,
+                        max_value=60,
+                        value=30,
+                        step=5,
+                        key="dd_recovery"
+                    ) / 100
+
+                with col2:
+                    statute_yrs = st.number_input(
+                        "Statute of Limitations (years)",
+                        min_value=3,
+                        max_value=15,
+                        value=5,
+                        key="dd_statute"
+                    )
+
+                with col3:
+                    st.write("")  # Spacing
+                    analyze_btn = st.button(
+                        "🔍 Run Due Diligence",
+                        type="primary",
+                        use_container_width=True
+                    )
+
+                if analyze_btn:
+                    with st.spinner("Analyzing portfolio..."):
+                        # Run due diligence
+                        dd = PortfolioDueDiligence(
+                            df_portfolio,
+                            base_recovery_rate=base_recovery,
+                            statute_years=statute_yrs
+                        )
+
+                        report = dd.generate_due_diligence_report()
+
+                        # Executive Summary
+                        st.markdown("---")
+                        st.markdown("## 📊 Executive Summary")
+
+                        summary = report['summary']
+
+                        # Alert boxes
+                        if summary['critical_issues_count'] > 0:
+                            st.error(f"🚨 {summary['critical_issues_count']} CRITICAL ISSUES FOUND")
+                            for issue in summary['critical_issues']:
+                                st.write(f"- {issue.replace('_', ' ').title()}")
+
+                        if summary['warnings_count'] > 0:
+                            st.warning(f"⚠️ {summary['warnings_count']} WARNINGS")
+                            for warning in summary['warnings']:
+                                st.write(f"- {warning.replace('_', ' ').title()}")
+
+                        if summary['critical_issues_count'] == 0 and summary['warnings_count'] == 0:
+                            st.success("✅ No major issues detected")
+
+                        # Recommendation
+                        st.info(f"**Recommendation:** {summary['recommendation']}")
+
+                        # ERC Impact
+                        adjusted = report['adjusted_erc']
+
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric(
+                                "Base ERC",
+                                f"€{adjusted['base_erc']:,.0f}",
+                                delta=f"{adjusted['base_recovery_rate']:.1%} recovery"
+                            )
+
+                        with col2:
+                            st.metric(
+                                "Total Adjustments",
+                                f"€{adjusted['total_adjustment']:,.0f}",
+                                delta=f"{summary['erc_impact_pct']:.1f}%" if summary['erc_impact_pct'] != 0 else None
+                            )
+
+                        with col3:
+                            st.metric(
+                                "Adjusted ERC",
+                                f"€{adjusted['adjusted_erc']:,.0f}",
+                                delta=f"{adjusted['adjusted_recovery_rate']:.1%} recovery"
+                            )
+
+                        # Detailed Adjustments
+                        if not adjusted['adjustment_summary'].empty:
+                            st.markdown("---")
+                            st.markdown("### 💰 ERC Adjustments")
+
+                            st.dataframe(
+                                adjusted['adjustment_summary'].style.format({
+                                    'affected_value': '€{:,.0f}',
+                                    'adjustment': '€{:,.0f}',
+                                    'new_recovery_rate': '{:.1%}'
+                                }),
+                                use_container_width=True
+                            )
+
+                        # Portfolio Composition
+                        st.markdown("---")
+                        st.markdown("### 📊 Portfolio Composition")
+
+                        composition = report['composition']
+
+                        # By balance size
+                        if 'by_balance_size' in composition and not composition['by_balance_size'].empty:
+                            st.markdown("#### By Balance Size")
+                            st.dataframe(
+                                composition['by_balance_size'].style.format({
+                                    'Total_Balance': '€{:,.0f}',
+                                    'Count': '{:,.0f}',
+                                    'Pct': '{:.1f}%'
+                                }),
+                                use_container_width=True
+                            )
+
+                            # Pie chart
+                            fig = px.pie(
+                                composition['by_balance_size'].reset_index(),
+                                values='Total_Balance',
+                                names='Balance_Segment',
+                                title='Portfolio Value Distribution'
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+
+                        # By age (if available)
+                        if 'by_age' in composition and not composition['by_age'].empty:
+                            st.markdown("#### By Age of Debt")
+                            st.dataframe(
+                                composition['by_age'].style.format({
+                                    'Total_Balance': '€{:,.0f}',
+                                    'Count': '{:,.0f}',
+                                    'Pct': '{:.1f}%'
+                                }),
+                                use_container_width=True
+                            )
+
+                        # Red Flags Detail
+                        st.markdown("---")
+                        st.markdown("### 🚨 Red Flags Analysis")
+
+                        red_flags = report['red_flags']
+
+                        # Statute Issues
+                        statute = red_flags['statute_issues']
+                        st.markdown("#### ⚖️ Statute of Limitations")
+
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric(
+                                "Past Statute (Unrecoverable)",
+                                f"{statute['past_statute_count']:,} accounts",
+                                delta=f"€{statute['past_statute_value']:,.0f}"
+                            )
+
+                        with col2:
+                            st.metric(
+                                "Near Statute (Risky)",
+                                f"{statute['near_statute_count']:,} accounts",
+                                delta=f"€{statute['near_statute_value']:,.0f}"
+                            )
+
+                        if statute['status'] == 'critical':
+                            st.error(f"🚨 CRITICAL: {statute['past_statute_pct']:.1f}% of portfolio is past statute!")
+                        elif statute['status'] == 'warning':
+                            st.warning(f"⚠️ WARNING: {statute['near_statute_pct']:.1f}% near statute limit")
+                        else:
+                            st.success("✅ Statute of limitations not a major issue")
+
+                        # Missing Contacts
+                        contacts = red_flags['missing_contacts']
+                        st.markdown("#### 📞 Contact Information")
+
+                        if contacts['status'] != 'unknown':
+                            st.metric(
+                                "Missing Contact Info",
+                                f"{contacts['count']:,} accounts ({contacts['pct']:.1f}%)",
+                                delta=f"€{contacts['value']:,.0f}"
+                            )
+
+                            if contacts['status'] == 'critical':
+                                st.error("🚨 CRITICAL: >20% missing contact information!")
+                            elif contacts['status'] == 'warning':
+                                st.warning("⚠️ WARNING: Significant missing contact data")
+                            else:
+                                st.success("✅ Contact information mostly complete")
+
+                        # Concentration Risk
+                        concentration = red_flags['concentration']
+                        st.markdown("#### 🎯 Concentration Risk")
+
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric(
+                                "Top 10 Accounts",
+                                f"{concentration['top_10_pct']:.1f}% of portfolio",
+                                delta=f"€{concentration['top_10_value']:,.0f}"
+                            )
+
+                        with col2:
+                            st.metric(
+                                "Largest Account",
+                                f"{concentration['top_1_pct']:.1f}% of portfolio",
+                                delta=f"€{concentration['top_1_value']:,.0f}"
+                            )
+
+                        if concentration['status'] == 'warning':
+                            st.warning("⚠️ WARNING: High concentration risk detected")
+                        else:
+                            st.success("✅ Good diversification")
+
+                        # Small Balances
+                        small = red_flags['small_balances']
+                        st.markdown("#### 💸 Small Balances (<€500)")
+
+                        st.metric(
+                            "Small Balance Accounts",
+                            f"{small['count']:,} accounts ({small['pct']:.1f}%)",
+                            delta=f"€{small['value']:,.0f} ({small['value_pct']:.1f}% of value)"
+                        )
+
+                        if small['status'] == 'warning':
+                            st.warning("⚠️ WARNING: High proportion of small balances (collection costs may exceed recovery)")
+                        else:
+                            st.success("✅ Small balances not a major concern")
+
+            except Exception as e:
+                st.error(f"Error loading file: {str(e)}")
+                st.write("Please ensure your file has a 'Current_Balance' or 'Balance' column")
 
 
 if __name__ == "__main__":
