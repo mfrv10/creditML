@@ -3,3 +3,37 @@
 /NEW_FEATURES_CASH_FLOW.md
 /ARCHITECTURE.md
 /UPLOAD_LARGE_FILES.md
+
+# Environment and secrets
+.env
+.env.local
+*.env
+
+# Column mapping cache
+.column_mappings.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Reports and outputs
+reports/
+*.pdf
+*.xlsx
+!data/sample_data/*.csv

@@ -23,6 +23,12 @@ from src.file_parser import CreditFileParser
 from src.ml_models import CreditRiskModel
 from src.portfolio_metrics import PortfolioAnalyzer
 from src.report_generator import ReportGenerator
+from src.column_mapper import ColumnMapper
+import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 def main():
     st.title("🏦 Automated Credit Portfolio Analyzer")
@@ -31,27 +37,52 @@ def main():
     # Sidebar
     with st.sidebar:
         st.header("⚙️ Settings")
+
+        # Gemini API configuration
+        st.markdown("### 🤖 AI Document Parsing")
+        use_gemini = st.checkbox("Enable Gemini AI (PDFs/Images)", value=True)
+        if use_gemini:
+            gemini_key = os.getenv('GEMINI_API_KEY')
+            if gemini_key:
+                st.success("✅ Gemini API key detected")
+            else:
+                st.warning("⚠️ No Gemini API key found in .env")
+
+        st.markdown("---")
+
         analysis_type = st.selectbox(
             "Analysis Type",
             ["Quick Analysis", "Deep Analysis", "Custom"]
         )
-        
+
+        # Manual mapping option
+        enable_manual_mapping = st.checkbox(
+            "Enable Manual Column Mapping",
+            value=False,
+            help="Manually map columns if auto-detection fails"
+        )
+
         st.markdown("---")
         st.markdown("### 📊 What This Tool Does:")
         st.markdown("""
         1. **Auto-detects** file structure
-        2. **ML Risk Scoring** for each account
-        3. **Financial Ratios** calculation
-        4. **Portfolio Valuation**
-        5. **Risk Metrics** (VaR, Expected Loss)
-        6. **Downloadable Reports**
+        2. **AI-powered** PDF/Image parsing (Gemini)
+        3. **ML Risk Scoring** for each account
+        4. **Financial Ratios** calculation
+        5. **Portfolio Valuation**
+        6. **Risk Metrics** (VaR, Expected Loss)
+        7. **Downloadable Reports**
         """)
     
     # File upload
+    file_types = ['csv', 'xlsx', 'xls']
+    if use_gemini:
+        file_types.extend(['pdf', 'png', 'jpg', 'jpeg'])
+
     uploaded_file = st.file_uploader(
         "Upload Credit Portfolio File",
-        type=['csv', 'xlsx', 'xls'],
-        help="Upload Excel or CSV file containing credit accounts (up to 1GB supported)"
+        type=file_types,
+        help="Upload Excel/CSV file or PDF/Image (with Gemini AI enabled)"
     )
     
     # Large file sampling option
@@ -72,11 +103,14 @@ def main():
     if uploaded_file is not None:
         with st.spinner("🔍 Analyzing your file..."):
             # Step 1: Parse and understand the file
-            parser = CreditFileParser()
+            parser = CreditFileParser(use_gemini=use_gemini)
             data_info = parser.analyze_file(uploaded_file)
-            
+
+            # Check if Gemini was used
+            is_gemini_parsed = data_info.get('parser') == 'gemini'
+
             st.success(f"✅ File understood: **{data_info['file_type']}** with **{data_info['num_records']:,}** records")
-            
+
             # Display file understanding
             with st.expander("📋 File Structure Detected", expanded=False):
                 col1, col2 = st.columns(2)
@@ -86,12 +120,57 @@ def main():
                 with col2:
                     st.metric("File Type", data_info['file_type'])
                     st.metric("Data Quality", f"{data_info['quality_score']:.1%}")
-                
-                st.markdown("**Detected Columns:**")
-                st.dataframe(data_info['column_mapping'], width='stretch')
-            
-            # Step 2: Load and process data
-            df = parser.load_and_standardize(uploaded_file)
+
+                if is_gemini_parsed:
+                    st.info("🤖 Parsed using Gemini AI")
+                    if 'gemini_metadata' in data_info:
+                        st.json(data_info['gemini_metadata'])
+                else:
+                    st.markdown("**Detected Columns:**")
+                    st.dataframe(data_info['column_mapping'], use_container_width=True)
+
+            # Initialize column mapper
+            column_mapper = ColumnMapper()
+
+            # Step 2: Manual column mapping (if enabled and not Gemini)
+            manual_mapping = None
+            if enable_manual_mapping and not is_gemini_parsed:
+                st.markdown("---")
+
+                # Load data for preview
+                if hasattr(uploaded_file, 'seek'):
+                    uploaded_file.seek(0)
+
+                # Quick load for column mapping
+                if uploaded_file.name.endswith('.csv'):
+                    df_preview = pd.read_csv(uploaded_file, nrows=5)
+                else:
+                    df_preview = pd.read_excel(uploaded_file, nrows=5)
+
+                if hasattr(uploaded_file, 'seek'):
+                    uploaded_file.seek(0)
+
+                # Get automatic mapping for defaults
+                auto_mapping_data = data_info.get('column_mapping', pd.DataFrame())
+                auto_mapping = {}
+                if not auto_mapping_data.empty:
+                    for _, row in auto_mapping_data.iterrows():
+                        if row['Confidence'] > 60:
+                            auto_mapping[row['Mapped To']] = row['Original Column']
+
+                # Render mapping UI
+                manual_mapping, mapping_ready = column_mapper.render_mapping_ui(
+                    df_preview,
+                    auto_mapping=auto_mapping
+                )
+
+                if not mapping_ready:
+                    st.stop()
+
+                st.markdown("---")
+
+            # Step 3: Load and process data
+            df = parser.load_and_standardize(uploaded_file, manual_mapping=manual_mapping)
             
             # Apply sampling if requested
             if use_sampling and sample_size and len(df) > sample_size:
