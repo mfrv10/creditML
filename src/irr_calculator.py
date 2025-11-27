@@ -38,8 +38,15 @@ class IRRCalculator:
             Dictionary with NPV, IRR, MOIC, and other metrics
         """
         # Use book value if no purchase price provided
+        # If neither is provided, use the beginning balance as a proxy
         if purchase_price is None:
-            purchase_price = book_value if book_value else cashflows['collections'].sum() * 0.8
+            if book_value:
+                purchase_price = book_value
+            elif 'beginning_balance' in cashflows.columns:
+                purchase_price = cashflows['beginning_balance'].iloc[0]
+            else:
+                # Fallback: use net cashflows sum as approximation
+                purchase_price = max(cashflows['net_cashflow'].sum(), 1.0)
         
         # Extract net cash flows
         net_cashflows = cashflows['net_cashflow'].values

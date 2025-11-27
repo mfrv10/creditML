@@ -184,9 +184,12 @@ class CashFlowProjector:
             
             # Total collections
             total_collections = principal_payment + interest_payment + recovery
-            
-            # Net cash flow
-            net_cf = total_collections - defaults_this_month
+
+            # Losses (defaults after recoveries)
+            losses_this_month = defaults_this_month * 0.55  # 55% LGD (Loss Given Default)
+
+            # Net cash flow (collections minus actual losses, not defaults)
+            net_cf = total_collections - losses_this_month
             
             # Update remaining balance
             remaining_balance = remaining_balance - principal_payment - defaults_this_month
@@ -363,7 +366,7 @@ class CashFlowProjector:
                 'defaults': totals['defaults'] * scale_factor,
                 'recoveries': totals['recoveries'] * scale_factor,
                 'losses': totals['losses'] * scale_factor,
-                'net_cashflow': (totals['total_payment'] + totals['recoveries'] - totals['defaults']) * scale_factor
+                'net_cashflow': (totals['total_payment'] + totals['recoveries'] - totals['losses']) * scale_factor
             })
         
         return pd.DataFrame(df_rows)
