@@ -1,0 +1,11 @@
+[server]
+# Increase max upload size to 1GB (2000MB)
+maxUploadSize = 2000
+
+# Optional: Increase message size for large data transfers
+maxMessageSize = 1000
+
+[browser]
+# Automatically open browser
+gatherUsageStats = false
+
