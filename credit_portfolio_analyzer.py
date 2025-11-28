@@ -676,44 +676,152 @@ def debt_collection_pricing_app():
                         # Calculate face value from data
                         auto_face_value = df_portfolio[balance_col].sum()
 
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            st.metric("Calculated Face Value", f"€{auto_face_value:,.0f}")
-                            st.caption(f"From {len(df_portfolio):,} accounts")
+                        # Standardize column name for due diligence
+                        df_analysis = df_portfolio.copy()
+                        df_analysis['Current_Balance'] = df_portfolio[balance_col]
 
-                        with col2:
-                            # Optional: Auto-calculate recovery rate from defaults (if available)
-                            default_cols = [col for col in df_portfolio.columns
-                                          if 'default' in col.lower() or 'status' in col.lower()]
+                        st.markdown("---")
+                        st.markdown("### 🔍 Portfolio Risk Analysis")
 
-                            if default_cols:
-                                st.write("Default data detected - can estimate recovery rate")
+                        # Run due diligence analysis
+                        with st.spinner("Analyzing portfolio for risks..."):
+                            base_recovery_estimate = 0.30  # Default 30%
+                            dd_analyzer = PortfolioDueDiligence(
+                                df=df_analysis,
+                                base_recovery_rate=base_recovery_estimate,
+                                statute_years=5
+                            )
 
-                        # Use auto-calculated value
+                            # Get composition and red flags
+                            composition = dd_analyzer.analyze_composition()
+                            red_flags = dd_analyzer.check_red_flags()
+                            erc_analysis = dd_analyzer.calculate_adjusted_erc()
+
+                        # Display risk summary
+                        st.markdown("#### 📊 Portfolio Composition")
+                        comp_col1, comp_col2 = st.columns(2)
+                        with comp_col1:
+                            st.metric("Total Face Value", f"€{composition['total_face_value']:,.0f}")
+                            st.metric("Total Accounts", f"{composition['total_accounts']:,}")
+                        with comp_col2:
+                            st.metric("Avg Balance per Account", f"€{composition['total_face_value']/composition['total_accounts']:,.2f}")
+
+                        # Show balance distribution
+                        if 'by_balance_size' in composition:
+                            with st.expander("📈 Balance Size Distribution", expanded=True):
+                                st.dataframe(composition['by_balance_size'], use_container_width=True)
+
+                        # Show red flags
+                        st.markdown("#### 🚨 Red Flags Detected")
+
+                        red_flag_count = 0
+                        if red_flags['statute_issues']['past_statute_count'] > 0:
+                            red_flag_count += 1
+                        if red_flags['missing_contacts']['count'] > 0:
+                            red_flag_count += 1
+                        if red_flags['small_balances']['count'] > 0:
+                            red_flag_count += 1
+                        if red_flags['concentration']['top_10_pct'] > 20:
+                            red_flag_count += 1
+
+                        if red_flag_count > 0:
+                            st.warning(f"⚠️ Found {red_flag_count} risk categories")
+                        else:
+                            st.success("✅ No major red flags detected")
+
+                        flag_col1, flag_col2 = st.columns(2)
+
+                        with flag_col1:
+                            # Statute issues
+                            if red_flags['statute_issues']['past_statute_count'] > 0:
+                                st.error(f"⚠️ **Statute-Barred Debt**: {red_flags['statute_issues']['past_statute_count']:,} accounts (€{red_flags['statute_issues']['past_statute_value']:,.0f})")
+                            if red_flags['statute_issues']['near_statute_count'] > 0:
+                                st.warning(f"⏰ **Near Statute Limit**: {red_flags['statute_issues']['near_statute_count']:,} accounts (€{red_flags['statute_issues']['near_statute_value']:,.0f})")
+
+                            # Missing contacts
+                            if red_flags['missing_contacts']['count'] > 0:
+                                st.warning(f"📞 **Missing Contacts**: {red_flags['missing_contacts']['count']:,} accounts ({red_flags['missing_contacts']['pct']:.1f}%)")
+
+                        with flag_col2:
+                            # Small balances
+                            if red_flags['small_balances']['count'] > 0:
+                                st.info(f"💰 **Small Balances**: {red_flags['small_balances']['count']:,} accounts (<€500)")
+
+                            # Concentration risk
+                            if red_flags['concentration']['top_10_pct'] > 20:
+                                st.warning(f"🎯 **Concentration Risk**: Top 10 = {red_flags['concentration']['top_10_pct']:.1f}%")
+
+                        # Show ERC adjustments
+                        st.markdown("---")
+                        st.markdown("#### 💡 Risk-Adjusted Recovery Rate")
+
+                        erc_col1, erc_col2, erc_col3 = st.columns(3)
+                        with erc_col1:
+                            st.metric("Base Recovery Rate", f"{erc_analysis['base_recovery_rate']:.1%}")
+                        with erc_col2:
+                            adjustment_pct = (erc_analysis['adjusted_recovery_rate'] - erc_analysis['base_recovery_rate'])
+                            st.metric(
+                                "Risk-Adjusted Rate",
+                                f"{erc_analysis['adjusted_recovery_rate']:.1%}",
+                                delta=f"{adjustment_pct:+.1%}"
+                            )
+                        with erc_col3:
+                            st.metric("ERC Impact", f"€{erc_analysis['total_adjustment']:,.0f}")
+
+                        if len(erc_analysis['adjustments']) > 0:
+                            with st.expander("📋 View Detailed Adjustments"):
+                                st.dataframe(erc_analysis['adjustment_summary'], use_container_width=True)
+
+                        # Use values for pricing
                         face_value = auto_face_value
                         portfolio_name = uploaded_portfolio.name.replace('.csv', '').replace('.xlsx', '').replace('.xls', '')
 
-                        # Allow user to adjust recovery rate
-                        recovery_rate = st.slider(
-                            "Recovery Rate (%)",
-                            min_value=10,
-                            max_value=60,
-                            value=30,
-                            step=5,
-                            help="Expected % of face value to collect",
-                            key="file_recovery"
-                        ) / 100
+                        # Store both recovery rates for comparison
+                        base_recovery_rate = base_recovery_estimate
+                        risk_adjusted_recovery_rate = erc_analysis['adjusted_recovery_rate']
+
+                        st.markdown("---")
+                        st.markdown("### 💰 Pricing Calculation")
+                        st.info("💡 We'll calculate pricing using both the standard and risk-adjusted recovery rates for comparison")
+
+                        # Allow user to choose or customize
+                        recovery_method = st.radio(
+                            "Recovery Rate to Use:",
+                            ["🎯 Use Risk-Adjusted Rate", "📊 Use Custom Rate", "📈 Compare Both"],
+                            horizontal=True
+                        )
+
+                        if recovery_method == "📊 Use Custom Rate":
+                            recovery_rate = st.slider(
+                                "Custom Recovery Rate (%)",
+                                min_value=10,
+                                max_value=60,
+                                value=int(base_recovery_estimate * 100),
+                                step=5,
+                                help="Override with your own estimate",
+                                key="custom_recovery"
+                            ) / 100
+                            use_comparison = False
+                        elif recovery_method == "🎯 Use Risk-Adjusted Rate":
+                            recovery_rate = risk_adjusted_recovery_rate
+                            use_comparison = False
+                        else:  # Compare Both
+                            recovery_rate = base_recovery_estimate
+                            use_comparison = True
 
                     else:
                         st.error("Could not find balance/amount column in file. Please select manual entry.")
                         face_value = None
+                        use_comparison = False
 
                 except Exception as e:
                     st.error(f"Error loading file: {str(e)}")
                     face_value = None
+                    use_comparison = False
             else:
-                st.info("👆 Upload a portfolio file to automatically calculate face value")
+                st.info("👆 Upload a portfolio file to automatically calculate face value and analyze risks")
                 face_value = None
+                use_comparison = False
 
         else:
             # Manual entry (original implementation)
@@ -767,6 +875,9 @@ def debt_collection_pricing_app():
                 else:
                     custom_curve = None
 
+            # Manual entry doesn't use comparison mode
+            use_comparison = False
+
         # Common section for both file upload and manual entry
         # Set defaults for optional parameters if not set by file upload
         if input_method == "📁 Upload Portfolio File":
@@ -776,24 +887,160 @@ def debt_collection_pricing_app():
         # Calculate button (only show if we have data)
         if face_value is not None and st.button("💰 Calculate Pricing", type="primary", use_container_width=True):
             with st.spinner("Calculating pricing..."):
-                # Initialize pricer
-                pricer = DebtPortfolioPricer(
-                    face_value=face_value,
-                    recovery_rate=recovery_rate,
-                    portfolio_type=portfolio_type,
-                    servicing_costs=servicing_costs,
-                    target_irr=target_irr
-                )
+                # Check if we need to calculate comparison
+                if use_comparison:
+                    # Calculate with base rate
+                    pricer_base = DebtPortfolioPricer(
+                        face_value=face_value,
+                        recovery_rate=base_recovery_rate,
+                        portfolio_type=portfolio_type,
+                        servicing_costs=servicing_costs,
+                        target_irr=target_irr
+                    )
+                    results_base = pricer_base.calculate_both_methods(
+                        custom_curve=custom_curve,
+                        custom_pc_ratio=custom_pc_ratio
+                    )
 
-                # Calculate both methods
-                results = pricer.calculate_both_methods(
-                    custom_curve=custom_curve,
-                    custom_pc_ratio=custom_pc_ratio
-                )
+                    # Calculate with risk-adjusted rate
+                    pricer_adjusted = DebtPortfolioPricer(
+                        face_value=face_value,
+                        recovery_rate=risk_adjusted_recovery_rate,
+                        portfolio_type=portfolio_type,
+                        servicing_costs=servicing_costs,
+                        target_irr=target_irr
+                    )
+                    results_adjusted = pricer_adjusted.calculate_both_methods(
+                        custom_curve=custom_curve,
+                        custom_pc_ratio=custom_pc_ratio
+                    )
 
-                # Display results
-                st.markdown("---")
-                st.markdown(f"## 📊 Pricing Results: {portfolio_name}")
+                    # Display comparison
+                    st.markdown("---")
+                    st.markdown(f"## 📊 Pricing Comparison: {portfolio_name}")
+                    st.markdown("#### Standard (Base Rate) vs Risk-Adjusted Pricing")
+
+                    # Comparison metrics
+                    comp_col1, comp_col2, comp_col3, comp_col4 = st.columns(4)
+
+                    with comp_col1:
+                        st.metric("Face Value", f"€{face_value:,.0f}")
+                        st.caption("Same for both")
+
+                    with comp_col2:
+                        st.metric("Base Recovery", f"{base_recovery_rate:.1%}")
+                        st.caption(f"ERC: €{results_base['portfolio_info']['erc']:,.0f}")
+
+                    with comp_col3:
+                        erc_diff = results_adjusted['portfolio_info']['erc'] - results_base['portfolio_info']['erc']
+                        st.metric(
+                            "Risk-Adjusted Recovery",
+                            f"{risk_adjusted_recovery_rate:.1%}",
+                            delta=f"{erc_diff:+,.0f} ERC"
+                        )
+                        st.caption(f"ERC: €{results_adjusted['portfolio_info']['erc']:,.0f}")
+
+                    with comp_col4:
+                        bid_diff = results_adjusted['recommendation']['bid_amount'] - results_base['recommendation']['bid_amount']
+                        bid_diff_pct = bid_diff / results_base['recommendation']['bid_amount'] if results_base['recommendation']['bid_amount'] > 0 else 0
+                        st.metric(
+                            "Price Difference",
+                            f"€{abs(bid_diff):,.0f}",
+                            delta=f"{bid_diff_pct:+.1%}"
+                        )
+
+                    # Side-by-side comparison
+                    st.markdown("---")
+                    compare_col1, compare_col2 = st.columns(2)
+
+                    with compare_col1:
+                        st.markdown("### 📊 Standard Pricing (Base Rate)")
+                        st.markdown(f"**Recovery Rate:** {base_recovery_rate:.1%}")
+
+                        st.metric("P/C Method", f"€{results_base['pc_method']['price']:,.0f}")
+                        st.caption(f"{results_base['pc_method']['price_as_pct_of_face']:.1%} of Face")
+
+                        st.metric("DCF Method", f"€{results_base['dcf_method']['price']:,.0f}")
+                        st.caption(f"{results_base['dcf_method']['price_as_pct_of_face']:.1%} of Face")
+
+                        margin_base = results_base['recommendation'].get('margin')
+                        st.metric(
+                            "Recommended Bid",
+                            f"€{results_base['recommendation']['bid_amount']:,.0f}",
+                            delta=f"{margin_base:.1%} margin" if margin_base is not None else None
+                        )
+                        decision_color = "green" if results_base['recommendation']['decision'] == 'BUY' else "red"
+                        st.markdown(f"<h3 style='color: {decision_color};'>{'✓ BUY' if results_base['recommendation']['decision'] == 'BUY' else '✗ PASS'}</h3>", unsafe_allow_html=True)
+
+                    with compare_col2:
+                        st.markdown("### 🎯 Risk-Adjusted Pricing")
+                        st.markdown(f"**Recovery Rate:** {risk_adjusted_recovery_rate:.1%}")
+
+                        pc_diff = results_adjusted['pc_method']['price'] - results_base['pc_method']['price']
+                        st.metric(
+                            "P/C Method",
+                            f"€{results_adjusted['pc_method']['price']:,.0f}",
+                            delta=f"{pc_diff:+,.0f}"
+                        )
+                        st.caption(f"{results_adjusted['pc_method']['price_as_pct_of_face']:.1%} of Face")
+
+                        dcf_diff = results_adjusted['dcf_method']['price'] - results_base['dcf_method']['price']
+                        st.metric(
+                            "DCF Method",
+                            f"€{results_adjusted['dcf_method']['price']:,.0f}",
+                            delta=f"{dcf_diff:+,.0f}"
+                        )
+                        st.caption(f"{results_adjusted['dcf_method']['price_as_pct_of_face']:.1%} of Face")
+
+                        margin_adjusted = results_adjusted['recommendation'].get('margin')
+                        st.metric(
+                            "Recommended Bid",
+                            f"€{results_adjusted['recommendation']['bid_amount']:,.0f}",
+                            delta=f"{margin_adjusted:.1%} margin" if margin_adjusted is not None else None
+                        )
+                        decision_color = "green" if results_adjusted['recommendation']['decision'] == 'BUY' else "red"
+                        st.markdown(f"<h3 style='color: {decision_color};'>{'✓ BUY' if results_adjusted['recommendation']['decision'] == 'BUY' else '✗ PASS'}</h3>", unsafe_allow_html=True)
+
+                    # Recommendation
+                    st.markdown("---")
+                    st.markdown("### 💡 Recommendation")
+                    if results_adjusted['recommendation']['decision'] != results_base['recommendation']['decision']:
+                        st.warning("⚠️ **Risk adjustment changes the recommendation!**")
+
+                    st.info(f"""
+                    **Suggested Approach:** Use the **Risk-Adjusted Pricing** (€{results_adjusted['recommendation']['bid_amount']:,.0f}) as it accounts for:
+                    - Portfolio-specific red flags
+                    - Statute of limitations issues
+                    - Contact information quality
+                    - Balance size distribution
+                    - Concentration risk
+
+                    The risk-adjusted bid is **€{abs(bid_diff):,.0f} {('lower' if bid_diff < 0 else 'higher')}** than the standard pricing.
+                    """)
+
+                    # Use risk-adjusted results for detailed display
+                    results = results_adjusted
+                    pricer = pricer_adjusted
+
+                else:
+                    # Single calculation (manual entry or single rate selected)
+                    pricer = DebtPortfolioPricer(
+                        face_value=face_value,
+                        recovery_rate=recovery_rate,
+                        portfolio_type=portfolio_type,
+                        servicing_costs=servicing_costs,
+                        target_irr=target_irr
+                    )
+
+                    # Calculate both methods
+                    results = pricer.calculate_both_methods(
+                        custom_curve=custom_curve,
+                        custom_pc_ratio=custom_pc_ratio
+                    )
+
+                    # Display results
+                    st.markdown("---")
+                    st.markdown(f"## 📊 Pricing Results: {portfolio_name}")
 
                 # Summary metrics
                 col1, col2, col3, col4 = st.columns(4)
