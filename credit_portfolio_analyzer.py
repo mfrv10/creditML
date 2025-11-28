@@ -1682,9 +1682,14 @@ def debt_collection_pricing_app(df=None, portfolio_name=None):
                 if 'pdf_filename' not in st.session_state:
                     st.session_state.pdf_filename = None
 
-                if st.button("📥 Generate PDF Report", type="primary", use_container_width=True, key="gen_pdf_btn"):
-                    # Check if pricing data exists in session state
-                    if 'pdf_data' in st.session_state and st.session_state.pdf_data is not None:
+                # Check if pricing data exists and show status
+                has_pdf_data = 'pdf_data' in st.session_state and st.session_state.pdf_data is not None
+                
+                if not has_pdf_data:
+                    st.info("ℹ️ Please calculate pricing first using the '💰 Calculate Pricing' button above to generate the PDF report.")
+                
+                if st.button("📥 Generate PDF Report", type="primary", use_container_width=True, key="gen_pdf_btn", disabled=not has_pdf_data):
+                    if has_pdf_data:
                         with st.spinner("Generating comprehensive PDF report..."):
                             try:
                                 # Get data from session state
@@ -1709,8 +1714,12 @@ def debt_collection_pricing_app(df=None, portfolio_name=None):
                                 st.session_state.pdf_buffer = pdf_buffer.getvalue()
                                 st.session_state.pdf_filename = f"Debt_Pricing_Report_{pdf_data['portfolio_name']}_{datetime.now().strftime('%Y%m%d')}.pdf"
                                 st.success("✅ PDF report generated successfully!")
+                                st.rerun()  # Rerun to show download button
                             except Exception as e:
-                                st.error(f"Error generating PDF: {str(e)}")
+                                import traceback
+                                error_details = traceback.format_exc()
+                                st.error(f"❌ Error generating PDF: {str(e)}")
+                                st.exception(e)  # Show full traceback
                                 st.session_state.pdf_buffer = None
                     else:
                         st.warning("⚠️ Please calculate pricing first before generating the PDF report.")
