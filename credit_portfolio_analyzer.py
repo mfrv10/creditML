@@ -1052,15 +1052,23 @@ def debt_collection_pricing_app(df=None, portfolio_name=None):
                         recovery_rate = base_recovery_estimate
                         use_comparison = True
 
+                    # File upload mode doesn't use custom curves/ratios
+                    custom_curve = None
+                    custom_pc_ratio = None
+
                 else:
                     st.error("Could not find balance/amount column in file. Please select manual entry.")
                     face_value = None
                     use_comparison = False
+                    custom_curve = None
+                    custom_pc_ratio = None
 
             except Exception as e:
                 st.error(f"Error loading file: {str(e)}")
                 face_value = None
                 use_comparison = False
+                custom_curve = None
+                custom_pc_ratio = None
 
         else:
             # Manual entry (original implementation)
