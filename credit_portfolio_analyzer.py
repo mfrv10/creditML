@@ -32,6 +32,267 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
+
+def create_debt_pricing_pdf(
+    portfolio_name: str,
+    face_value: float,
+    recovery_rate: float,
+    results: dict,
+    monthly_schedule: pd.DataFrame,
+    portfolio_type: str,
+    servicing_costs: float,
+    target_irr: float,
+    composition: dict = None,
+    red_flags: dict = None,
+    erc_analysis: dict = None
+) -> BytesIO:
+    """
+    Generate comprehensive PDF report for debt portfolio pricing.
+
+    Includes: Portfolio summary, risk analysis, pricing results, cash flow projections, and recommendations.
+    """
+    from reportlab.lib.pagesizes import letter, A4
+    from reportlab.lib import colors
+    from reportlab.lib.units import inch
+    from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle, Paragraph,
+                                     Spacer, PageBreak, Image)
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT, TA_JUSTIFY
+    from reportlab.pdfgen import canvas
+    import plotly.graph_objects as go
+    from io import BytesIO
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, topMargin=0.5*inch, bottomMargin=0.5*inch)
+
+    # Container for PDF elements
+    elements = []
+    styles = getSampleStyleSheet()
+
+    # Custom styles
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        textColor=colors.HexColor('#1f77b4'),
+        spaceAfter=30,
+        alignment=TA_CENTER
+    )
+
+    heading_style = ParagraphStyle(
+        'CustomHeading',
+        parent=styles['Heading2'],
+        fontSize=16,
+        textColor=colors.HexColor('#2ca02c'),
+        spaceAfter=12,
+        spaceBefore=12
+    )
+
+    # Title Page
+    elements.append(Paragraph("DEBT PORTFOLIO PRICING REPORT", title_style))
+    elements.append(Spacer(1, 0.2*inch))
+    elements.append(Paragraph(f"<b>Portfolio:</b> {portfolio_name}", styles['Normal']))
+    elements.append(Paragraph(f"<b>Date:</b> {datetime.now().strftime('%B %d, %Y')}", styles['Normal']))
+    elements.append(Spacer(1, 0.5*inch))
+
+    # Executive Summary
+    elements.append(Paragraph("EXECUTIVE SUMMARY", heading_style))
+
+    decision = results['recommendation']['decision']
+    decision_color = 'green' if decision == 'BUY' else 'red'
+    elements.append(Paragraph(
+        f"<b>RECOMMENDATION: <font color='{decision_color}'>{decision}</font></b>",
+        styles['Normal']
+    ))
+    elements.append(Spacer(1, 0.2*inch))
+
+    # Summary table
+    summary_data = [
+        ['Metric', 'Value'],
+        ['Face Value', f"€{face_value:,.0f}"],
+        ['Recovery Rate', f"{recovery_rate:.1%}"],
+        ['Expected Collections (ERC)', f"€{results['portfolio_info']['erc']:,.0f}"],
+        ['', ''],
+        ['P/C Method Price', f"€{results['pc_method']['price']:,.0f}"],
+        ['DCF Method Price', f"€{results['dcf_method']['price']:,.0f}"],
+        ['RECOMMENDED BID', f"€{results['recommendation']['bid_amount']:,.0f}"],
+        ['Expected IRR', f"{results['recommendation']['expected_irr']:.1%}"],
+        ['Target IRR', f"{target_irr:.1%}"],
+        ['Margin vs Target', f"{results['recommendation'].get('margin', 0):.1%}"]
+    ]
+
+    summary_table = Table(summary_data, colWidths=[3*inch, 2*inch])
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f77b4')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 12),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('FONTNAME', (0, 7), (-1, 7), 'Helvetica-Bold'),  # Highlight recommended bid
+        ('BACKGROUND', (0, 7), (-1, 7), colors.HexColor('#90EE90')),
+    ]))
+
+    elements.append(summary_table)
+    elements.append(Spacer(1, 0.3*inch))
+
+    # Risk Analysis (if available)
+    if composition and red_flags and erc_analysis:
+        elements.append(PageBreak())
+        elements.append(Paragraph("RISK ANALYSIS", heading_style))
+
+        # Portfolio composition
+        elements.append(Paragraph("<b>Portfolio Composition:</b>", styles['Normal']))
+        elements.append(Spacer(1, 0.1*inch))
+
+        comp_data = [
+            ['Metric', 'Value'],
+            ['Total Accounts', f"{composition['total_accounts']:,}"],
+            ['Total Face Value', f"€{composition['total_face_value']:,.0f}"],
+            ['Average Balance', f"€{composition['total_face_value']/composition['total_accounts']:,.2f}"]
+        ]
+
+        comp_table = Table(comp_data, colWidths=[3*inch, 2*inch])
+        comp_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ]))
+        elements.append(comp_table)
+        elements.append(Spacer(1, 0.2*inch))
+
+        # Red flags
+        elements.append(Paragraph("<b>Red Flags Detected:</b>", styles['Normal']))
+        elements.append(Spacer(1, 0.1*inch))
+
+        red_flag_text = []
+        if red_flags['statute_issues']['past_statute_count'] > 0:
+            red_flag_text.append(f"• Statute-Barred Debt: {red_flags['statute_issues']['past_statute_count']:,} accounts (€{red_flags['statute_issues']['past_statute_value']:,.0f})")
+        if red_flags['missing_contacts']['count'] > 0:
+            red_flag_text.append(f"• Missing Contacts: {red_flags['missing_contacts']['count']:,} accounts ({red_flags['missing_contacts']['pct']:.1f}%)")
+        if red_flags['small_balances']['count'] > 0:
+            red_flag_text.append(f"• Small Balances: {red_flags['small_balances']['count']:,} accounts (<€500)")
+        if red_flags['concentration']['top_10_pct'] > 20:
+            red_flag_text.append(f"• Concentration Risk: Top 10 accounts = {red_flags['concentration']['top_10_pct']:.1f}%")
+
+        if red_flag_text:
+            for flag in red_flag_text:
+                elements.append(Paragraph(flag, styles['Normal']))
+        else:
+            elements.append(Paragraph("✓ No major red flags detected", styles['Normal']))
+
+        elements.append(Spacer(1, 0.2*inch))
+
+        # ERC adjustment
+        elements.append(Paragraph(f"<b>ERC Adjustment:</b> {erc_analysis['base_recovery_rate']:.1%} → {erc_analysis['adjusted_recovery_rate']:.1%} (Impact: €{erc_analysis['total_adjustment']:,.0f})", styles['Normal']))
+
+    # Pricing Methods Detail
+    elements.append(PageBreak())
+    elements.append(Paragraph("PRICING METHODOLOGY", heading_style))
+
+    # P/C Ratio Method
+    elements.append(Paragraph("<b>1. P/C Ratio Method:</b>", styles['Normal']))
+    elements.append(Paragraph(f"   • P/C Ratio: {results['pc_method']['pc_ratio']:.1%}", styles['Normal']))
+    elements.append(Paragraph(f"   • Formula: Price = ERC × P/C Ratio", styles['Normal']))
+    elements.append(Paragraph(f"   • Calculation: €{results['portfolio_info']['erc']:,.0f} × {results['pc_method']['pc_ratio']:.1%} = €{results['pc_method']['price']:,.0f}", styles['Normal']))
+    elements.append(Spacer(1, 0.2*inch))
+
+    # DCF Method
+    elements.append(Paragraph("<b>2. DCF Method:</b>", styles['Normal']))
+    elements.append(Paragraph(f"   • Target IRR: {results['dcf_method']['target_irr']:.1%}", styles['Normal']))
+    elements.append(Paragraph(f"   • Collection Period: {len(results['dcf_method']['collection_curve'])} years", styles['Normal']))
+    elements.append(Paragraph(f"   • Net Present Value: €{results['dcf_method']['total_pv']:,.0f}", styles['Normal']))
+    elements.append(Spacer(1, 0.3*inch))
+
+    # Cash Flow Projections
+    elements.append(Paragraph("CASH FLOW PROJECTIONS", heading_style))
+
+    # Yearly cashflow table
+    yearly_cf = results['dcf_method']['yearly_cashflows']
+    cf_data = [['Year', 'Collections', 'Costs', 'Net CF', 'PV']]
+    for _, row in yearly_cf.iterrows():
+        cf_data.append([
+            f"Year {int(row['year'])}",
+            f"€{row['gross_collections']:,.0f}",
+            f"€{row['servicing_costs']:,.0f}",
+            f"€{row['net_collections']:,.0f}",
+            f"€{row['present_value']:,.0f}"
+        ])
+
+    cf_table = Table(cf_data, colWidths=[1*inch, 1.5*inch, 1.5*inch, 1.5*inch, 1.5*inch])
+    cf_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2ca02c')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.lightgrey),
+    ]))
+
+    elements.append(cf_table)
+    elements.append(Spacer(1, 0.3*inch))
+
+    # Monthly summary (first 12 months)
+    elements.append(Paragraph("<b>First 12 Months Detail:</b>", styles['Normal']))
+    elements.append(Spacer(1, 0.1*inch))
+
+    monthly_data = [['Month', 'Collections', 'Cumulative']]
+    for _, row in monthly_schedule.head(12).iterrows():
+        monthly_data.append([
+            f"Month {int(row['month'])}",
+            f"€{row['net_collections']:,.0f}",
+            f"€{row['cumulative_net']:,.0f}"
+        ])
+
+    monthly_table = Table(monthly_data, colWidths=[1.5*inch, 2*inch, 2*inch])
+    monthly_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+    ]))
+
+    elements.append(monthly_table)
+
+    # Final Recommendation
+    elements.append(PageBreak())
+    elements.append(Paragraph("FINAL RECOMMENDATION", heading_style))
+
+    recommendation_text = f"""
+    Based on the comprehensive analysis of the {portfolio_name} portfolio:
+
+    • <b>Face Value:</b> €{face_value:,.0f}
+    • <b>Expected Collections:</b> €{results['portfolio_info']['erc']:,.0f} ({recovery_rate:.1%} recovery rate)
+    • <b>Portfolio Type:</b> {portfolio_type.replace('_', ' ').title()}
+    • <b>Servicing Costs:</b> {servicing_costs:.0%} of collections
+
+    <b>Pricing Analysis:</b>
+    • P/C Method suggests: €{results['pc_method']['price']:,.0f}
+    • DCF Method suggests: €{results['dcf_method']['price']:,.0f}
+    • Recommended Bid: €{results['recommendation']['bid_amount']:,.0f}
+
+    <b>Return Analysis:</b>
+    • Expected IRR: {results['recommendation']['expected_irr']:.1%}
+    • Target IRR: {target_irr:.1%}
+    • Margin: {results['recommendation'].get('margin', 0):+.1%}
+
+    <b>Decision: <font color='{decision_color}'>{decision}</font></b>
+
+    {f"This portfolio MEETS the target IRR requirements and is recommended for acquisition at the suggested bid price."
+     if decision == 'BUY' else
+     "This portfolio DOES NOT meet the target IRR requirements at the suggested pricing. Consider passing or renegotiating terms."}
+    """
+
+    elements.append(Paragraph(recommendation_text, styles['Normal']))
+
+    # Build PDF
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer
+
+
 def main():
     st.title("🏦 Automated Credit Portfolio Analyzer")
 
@@ -800,10 +1061,6 @@ def debt_collection_pricing_app(df=None, portfolio_name=None):
                 st.error(f"Error loading file: {str(e)}")
                 face_value = None
                 use_comparison = False
-            else:
-                st.info("👆 Upload a portfolio file to automatically calculate face value and analyze risks")
-                face_value = None
-                use_comparison = False
 
         else:
             # Manual entry (original implementation)
@@ -1136,6 +1393,37 @@ def debt_collection_pricing_app(df=None, portfolio_name=None):
                     }),
                     use_container_width=True
                 )
+
+                # PDF Report Generation
+                st.markdown("---")
+                st.markdown("### 📄 Download Comprehensive Report")
+
+                if st.button("📥 Generate PDF Report", type="primary", use_container_width=True):
+                    with st.spinner("Generating comprehensive PDF report..."):
+                        # Generate PDF
+                        pdf_buffer = create_debt_pricing_pdf(
+                            portfolio_name=portfolio_name,
+                            face_value=face_value,
+                            recovery_rate=recovery_rate,
+                            results=results,
+                            monthly_schedule=monthly_schedule,
+                            portfolio_type=portfolio_type,
+                            servicing_costs=servicing_costs,
+                            target_irr=target_irr,
+                            composition=composition if use_comparison else None,
+                            red_flags=red_flags if use_comparison else None,
+                            erc_analysis=erc_analysis if use_comparison else None
+                        )
+
+                        # Offer download
+                        st.download_button(
+                            label="⬇️ Download PDF Report",
+                            data=pdf_buffer,
+                            file_name=f"Debt_Pricing_Report_{portfolio_name}_{datetime.now().strftime('%Y%m%d')}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+                        st.success("✅ PDF report generated successfully!")
 
     with tab2:
         st.markdown("### Compare Multiple Portfolios")
