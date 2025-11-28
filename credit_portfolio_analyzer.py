@@ -35,21 +35,18 @@ load_dotenv()
 def main():
     st.title("🏦 Automated Credit Portfolio Analyzer")
 
-    # Mode selector
-    mode = st.radio(
-        "Select Analysis Mode:",
-        ["📊 Active Portfolio Analysis", "💰 Debt Collection Pricing"],
-        horizontal=True
-    )
+    # Initialize session state for persistent data
+    if 'uploaded_df' not in st.session_state:
+        st.session_state.uploaded_df = None
+    if 'portfolio_name' not in st.session_state:
+        st.session_state.portfolio_name = None
+    if 'data_info' not in st.session_state:
+        st.session_state.data_info = None
 
-    if mode == "💰 Debt Collection Pricing":
-        debt_collection_pricing_app()
-        return
+    # Unified file upload section (before mode selection)
+    st.markdown("### 📁 Upload Portfolio File")
 
-    # Original app continues for Active Portfolio Analysis
-    st.markdown("Upload your credit portfolio file and get instant analysis, risk scoring, and valuation")
-    
-    # Sidebar
+    # Sidebar settings
     with st.sidebar:
         st.header("⚙️ Settings")
 
@@ -62,13 +59,6 @@ def main():
                 st.success("✅ Gemini API key detected")
             else:
                 st.warning("⚠️ No Gemini API key found in .env")
-
-        st.markdown("---")
-
-        analysis_type = st.selectbox(
-            "Analysis Type",
-            ["Quick Analysis", "Deep Analysis", "Custom"]
-        )
 
         # Manual mapping option
         enable_manual_mapping = st.checkbox(
@@ -86,113 +76,136 @@ def main():
         4. **Financial Ratios** calculation
         5. **Portfolio Valuation**
         6. **Risk Metrics** (VaR, Expected Loss)
-        7. **Downloadable Reports**
+        7. **Debt Collection Pricing**
+        8. **Due Diligence Analysis**
         """)
-    
-    # File upload
+
+    # File upload (shared across modes)
     file_types = ['csv', 'xlsx', 'xls']
     if use_gemini:
         file_types.extend(['pdf', 'png', 'jpg', 'jpeg'])
 
     uploaded_file = st.file_uploader(
-        "Upload Credit Portfolio File",
+        "Upload Credit Portfolio File (Works for all analysis modes)",
         type=file_types,
-        help="Upload Excel/CSV file or PDF/Image (with Gemini AI enabled)"
+        help="Upload once - use for both Active Portfolio Analysis and Debt Pricing",
+        key="main_file_upload"
     )
-    
-    # Large file sampling option
+
+    # Process uploaded file once
     if uploaded_file is not None:
-        file_size_mb = uploaded_file.size / (1024 * 1024)
-        if file_size_mb > 100:
-            st.warning(f"⚠️ Large file detected ({file_size_mb:.1f}MB). Consider using sampling for faster processing.")
-            use_sampling = st.checkbox("Use sampling (analyze subset of data)", value=True)
-            if use_sampling:
-                sample_size = st.slider("Sample size (rows)", 1000, 100000, 10000, step=1000)
+        # Check if this is a new file
+        file_changed = (st.session_state.portfolio_name != uploaded_file.name)
+
+        if file_changed or st.session_state.uploaded_df is None:
+            with st.spinner("🔍 Processing your file..."):
+                # Parse and understand the file
+                parser = CreditFileParser(use_gemini=use_gemini)
+                data_info = parser.analyze_file(uploaded_file)
+
+                is_gemini_parsed = data_info.get('parser') == 'gemini'
+
+                st.success(f"✅ File loaded: **{data_info['file_type']}** with **{data_info['num_records']:,}** records")
+
+                # Manual column mapping if needed
+                manual_mapping = None
+                if enable_manual_mapping and not is_gemini_parsed:
+                    column_mapper = ColumnMapper()
+
+                    if hasattr(uploaded_file, 'seek'):
+                        uploaded_file.seek(0)
+
+                    if uploaded_file.name.endswith('.csv'):
+                        df_preview = pd.read_csv(uploaded_file, nrows=5)
+                    else:
+                        df_preview = pd.read_excel(uploaded_file, nrows=5)
+
+                    if hasattr(uploaded_file, 'seek'):
+                        uploaded_file.seek(0)
+
+                    auto_mapping_data = data_info.get('column_mapping', pd.DataFrame())
+                    auto_mapping = {}
+                    if not auto_mapping_data.empty:
+                        for _, row in auto_mapping_data.iterrows():
+                            if row['Confidence'] > 60:
+                                auto_mapping[row['Mapped To']] = row['Original Column']
+
+                    manual_mapping, mapping_ready = column_mapper.render_mapping_ui(
+                        df_preview,
+                        auto_mapping=auto_mapping
+                    )
+
+                    if not mapping_ready:
+                        st.warning("⚠️ Please complete column mapping before proceeding")
+                        st.stop()
+
+                # Load and process data
+                df = parser.load_and_standardize(uploaded_file, manual_mapping=manual_mapping)
+
+                # Store in session state
+                st.session_state.uploaded_df = df
+                st.session_state.portfolio_name = uploaded_file.name
+                st.session_state.data_info = data_info
+
+                st.success("✅ Portfolio data ready - Select analysis mode below")
+
+    # Show current file status
+    if st.session_state.uploaded_df is not None:
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("📄 Current File", st.session_state.portfolio_name)
+        with col2:
+            st.metric("📊 Records", f"{len(st.session_state.uploaded_df):,}")
+        with col3:
+            st.metric("🔧 Columns", f"{len(st.session_state.uploaded_df.columns)}")
+
+    st.markdown("---")
+
+    # Mode selector (after file upload)
+    mode = st.radio(
+        "Select Analysis Mode:",
+        ["📊 Active Portfolio Analysis", "💰 Debt Collection Pricing"],
+        horizontal=True
+    )
+
+    # Check if data is loaded
+    if st.session_state.uploaded_df is None:
+        st.info("👆 Upload a credit portfolio file to begin")
+        st.stop()
+
+    if mode == "💰 Debt Collection Pricing":
+        debt_collection_pricing_app(
+            df=st.session_state.uploaded_df,
+            portfolio_name=st.session_state.portfolio_name
+        )
+        return
+
+    # Original app continues for Active Portfolio Analysis
+    st.markdown("### 📊 Active Portfolio Analysis")
+
+    # Use data from session state
+    df = st.session_state.uploaded_df
+    data_info = st.session_state.data_info
+
+    # Display file understanding
+    with st.expander("📋 File Structure Detected", expanded=False):
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Total Records", f"{data_info['num_records']:,}")
+            st.metric("Total Columns", data_info['num_columns'])
+        with col2:
+            st.metric("File Type", data_info['file_type'])
+            st.metric("Data Quality", f"{data_info['quality_score']:.1%}")
+
+        if data_info.get('parser') == 'gemini':
+            st.info("🤖 Parsed using Gemini AI")
+            if 'gemini_metadata' in data_info:
+                st.json(data_info['gemini_metadata'])
         else:
-            use_sampling = False
-            sample_size = None
-    else:
-        use_sampling = False
-        sample_size = None
-    
-    if uploaded_file is not None:
-        with st.spinner("🔍 Analyzing your file..."):
-            # Step 1: Parse and understand the file
-            parser = CreditFileParser(use_gemini=use_gemini)
-            data_info = parser.analyze_file(uploaded_file)
+            st.markdown("**Detected Columns:**")
+            st.dataframe(data_info.get('column_mapping', pd.DataFrame()), use_container_width=True)
 
-            # Check if Gemini was used
-            is_gemini_parsed = data_info.get('parser') == 'gemini'
-
-            st.success(f"✅ File understood: **{data_info['file_type']}** with **{data_info['num_records']:,}** records")
-
-            # Display file understanding
-            with st.expander("📋 File Structure Detected", expanded=False):
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.metric("Total Records", f"{data_info['num_records']:,}")
-                    st.metric("Total Columns", data_info['num_columns'])
-                with col2:
-                    st.metric("File Type", data_info['file_type'])
-                    st.metric("Data Quality", f"{data_info['quality_score']:.1%}")
-
-                if is_gemini_parsed:
-                    st.info("🤖 Parsed using Gemini AI")
-                    if 'gemini_metadata' in data_info:
-                        st.json(data_info['gemini_metadata'])
-                else:
-                    st.markdown("**Detected Columns:**")
-                    st.dataframe(data_info['column_mapping'], use_container_width=True)
-
-            # Initialize column mapper
-            column_mapper = ColumnMapper()
-
-            # Step 2: Manual column mapping (if enabled and not Gemini)
-            manual_mapping = None
-            if enable_manual_mapping and not is_gemini_parsed:
-                st.markdown("---")
-
-                # Load data for preview
-                if hasattr(uploaded_file, 'seek'):
-                    uploaded_file.seek(0)
-
-                # Quick load for column mapping
-                if uploaded_file.name.endswith('.csv'):
-                    df_preview = pd.read_csv(uploaded_file, nrows=5)
-                else:
-                    df_preview = pd.read_excel(uploaded_file, nrows=5)
-
-                if hasattr(uploaded_file, 'seek'):
-                    uploaded_file.seek(0)
-
-                # Get automatic mapping for defaults
-                auto_mapping_data = data_info.get('column_mapping', pd.DataFrame())
-                auto_mapping = {}
-                if not auto_mapping_data.empty:
-                    for _, row in auto_mapping_data.iterrows():
-                        if row['Confidence'] > 60:
-                            auto_mapping[row['Mapped To']] = row['Original Column']
-
-                # Render mapping UI
-                manual_mapping, mapping_ready = column_mapper.render_mapping_ui(
-                    df_preview,
-                    auto_mapping=auto_mapping
-                )
-
-                if not mapping_ready:
-                    st.stop()
-
-                st.markdown("---")
-
-            # Step 3: Load and process data
-            df = parser.load_and_standardize(uploaded_file, manual_mapping=manual_mapping)
-            
-            # Apply sampling if requested
-            if use_sampling and sample_size and len(df) > sample_size:
-                st.info(f"📊 Sampling {sample_size:,} rows from {len(df):,} total records")
-                df = df.sample(n=sample_size, random_state=42).reset_index(drop=True)
-            
-            # Step 3: Run ML Risk Model
+    # Step 3: Run ML Risk Model
             st.markdown("---")
             st.subheader("🤖 ML Risk Scoring")
             
@@ -542,44 +555,16 @@ def main():
                  'default_probability', 'risk_category', 'risk_score']
             ].round(4)
             st.dataframe(high_risk_df, use_container_width=True)
-            
-    else:
-        # Show example/instructions when no file uploaded
-        st.info("👆 Upload a credit portfolio file to begin analysis")
-        
-        st.markdown("---")
-        st.markdown("### 📝 Supported File Types:")
-        st.markdown("""
-        - **Credit Card Portfolios**: Account-level data with payment history
-        - **Loan Portfolios**: Mortgage, personal, auto loans
-        - **Trade Credit**: B2B credit accounts
-        - **Mixed Portfolios**: Any credit exposure data
-        """)
-        
-        st.markdown("### 💡 What You'll Get:")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("""
-            **Automated Analysis:**
-            - Smart file structure detection
-            - Data quality assessment
-            - Automatic column mapping
-            - Missing data handling
-            """)
-        with col2:
-            st.markdown("""
-            **Comprehensive Outputs:**
-            - ML-based risk scores
-            - 20+ financial ratios
-            - Portfolio valuation
-            - Executive PDF report
-            """)
 
 
-def debt_collection_pricing_app():
+def debt_collection_pricing_app(df=None, portfolio_name=None):
     """
     Debt Collection Portfolio Pricing Mode
     Price charged-off debt portfolios using P/C ratio and DCF methodologies
+
+    Args:
+        df: Pre-loaded DataFrame from session state (optional)
+        portfolio_name: Name of the uploaded file (optional)
     """
     st.markdown("## 💰 Debt Collection Portfolio Pricing")
     st.markdown("Price charged-off debt portfolios using industry-standard P/C ratio and DCF methodologies")
@@ -640,98 +625,95 @@ def debt_collection_pricing_app():
     with tab1:
         st.markdown("### Portfolio Pricing")
 
-        # Option to upload portfolio file or enter manually
-        input_method = st.radio(
-            "Input Method:",
-            ["📁 Upload Portfolio File", "✍️ Manual Entry"],
-            horizontal=True
-        )
+        # Check if we have uploaded data from session state
+        has_uploaded_data = (df is not None and portfolio_name is not None)
 
-        if input_method == "📁 Upload Portfolio File":
-            # File upload for automatic calculation
-            st.markdown("#### Upload Portfolio Data")
-            uploaded_portfolio = st.file_uploader(
-                "Upload Portfolio File (CSV/Excel)",
-                type=['csv', 'xlsx', 'xls'],
-                key="pricing_upload"
+        # Option to use uploaded file or enter manually
+        if has_uploaded_data:
+            input_method = st.radio(
+                "Input Method:",
+                ["📁 Use Uploaded File", "✍️ Manual Entry"],
+                horizontal=True
             )
+        else:
+            input_method = "✍️ Manual Entry"
+            st.info("💡 Upload a file in the main section above to enable automatic pricing from your portfolio data")
 
-            if uploaded_portfolio is not None:
-                try:
-                    # Load portfolio data
-                    if uploaded_portfolio.name.endswith('.csv'):
-                        df_portfolio = pd.read_csv(uploaded_portfolio)
+        if input_method == "📁 Use Uploaded File" and has_uploaded_data:
+            # Use the already uploaded and processed file
+            st.markdown("#### Using Uploaded Portfolio Data")
+            st.success(f"✅ Using: **{portfolio_name}** ({len(df):,} accounts)")
+
+            try:
+                # Use the dataframe from session state
+                df_portfolio = df.copy()
+
+                # Auto-detect balance column
+                balance_cols = [col for col in df_portfolio.columns
+                              if any(term in col.lower() for term in ['balance', 'amount', 'principal', 'outstanding'])]
+
+                if balance_cols:
+                    balance_col = st.selectbox("Select Balance Column:", balance_cols, index=0)
+
+                    # Calculate face value from data
+                    auto_face_value = df_portfolio[balance_col].sum()
+
+                    # Standardize column name for due diligence
+                    df_analysis = df_portfolio.copy()
+                    df_analysis['Current_Balance'] = df_portfolio[balance_col]
+
+                    st.markdown("---")
+                    st.markdown("### 🔍 Portfolio Risk Analysis")
+
+                    # Run due diligence analysis
+                    with st.spinner("Analyzing portfolio for risks..."):
+                        base_recovery_estimate = 0.30  # Default 30%
+                        dd_analyzer = PortfolioDueDiligence(
+                            df=df_analysis,
+                            base_recovery_rate=base_recovery_estimate,
+                            statute_years=5
+                        )
+
+                        # Get composition and red flags
+                        composition = dd_analyzer.analyze_composition()
+                        red_flags = dd_analyzer.check_red_flags()
+                        erc_analysis = dd_analyzer.calculate_adjusted_erc()
+
+                    # Display risk summary
+                    st.markdown("#### 📊 Portfolio Composition")
+                    comp_col1, comp_col2 = st.columns(2)
+                    with comp_col1:
+                        st.metric("Total Face Value", f"€{composition['total_face_value']:,.0f}")
+                        st.metric("Total Accounts", f"{composition['total_accounts']:,}")
+                    with comp_col2:
+                        st.metric("Avg Balance per Account", f"€{composition['total_face_value']/composition['total_accounts']:,.2f}")
+
+                    # Show balance distribution
+                    if 'by_balance_size' in composition:
+                        with st.expander("📈 Balance Size Distribution", expanded=True):
+                            st.dataframe(composition['by_balance_size'], use_container_width=True)
+
+                    # Show red flags
+                    st.markdown("#### 🚨 Red Flags Detected")
+
+                    red_flag_count = 0
+                    if red_flags['statute_issues']['past_statute_count'] > 0:
+                        red_flag_count += 1
+                    if red_flags['missing_contacts']['count'] > 0:
+                        red_flag_count += 1
+                    if red_flags['small_balances']['count'] > 0:
+                        red_flag_count += 1
+                    if red_flags['concentration']['top_10_pct'] > 20:
+                        red_flag_count += 1
+
+                    if red_flag_count > 0:
+                        st.warning(f"⚠️ Found {red_flag_count} risk categories")
                     else:
-                        df_portfolio = pd.read_excel(uploaded_portfolio)
+                        st.success("✅ No major red flags detected")
 
-                    st.success(f"✅ Loaded {len(df_portfolio):,} accounts")
+                    flag_col1, flag_col2 = st.columns(2)
 
-                    # Auto-detect balance column
-                    balance_cols = [col for col in df_portfolio.columns
-                                  if any(term in col.lower() for term in ['balance', 'amount', 'principal', 'outstanding'])]
-
-                    if balance_cols:
-                        balance_col = st.selectbox("Select Balance Column:", balance_cols, index=0)
-
-                        # Calculate face value from data
-                        auto_face_value = df_portfolio[balance_col].sum()
-
-                        # Standardize column name for due diligence
-                        df_analysis = df_portfolio.copy()
-                        df_analysis['Current_Balance'] = df_portfolio[balance_col]
-
-                        st.markdown("---")
-                        st.markdown("### 🔍 Portfolio Risk Analysis")
-
-                        # Run due diligence analysis
-                        with st.spinner("Analyzing portfolio for risks..."):
-                            base_recovery_estimate = 0.30  # Default 30%
-                            dd_analyzer = PortfolioDueDiligence(
-                                df=df_analysis,
-                                base_recovery_rate=base_recovery_estimate,
-                                statute_years=5
-                            )
-
-                            # Get composition and red flags
-                            composition = dd_analyzer.analyze_composition()
-                            red_flags = dd_analyzer.check_red_flags()
-                            erc_analysis = dd_analyzer.calculate_adjusted_erc()
-
-                        # Display risk summary
-                        st.markdown("#### 📊 Portfolio Composition")
-                        comp_col1, comp_col2 = st.columns(2)
-                        with comp_col1:
-                            st.metric("Total Face Value", f"€{composition['total_face_value']:,.0f}")
-                            st.metric("Total Accounts", f"{composition['total_accounts']:,}")
-                        with comp_col2:
-                            st.metric("Avg Balance per Account", f"€{composition['total_face_value']/composition['total_accounts']:,.2f}")
-
-                        # Show balance distribution
-                        if 'by_balance_size' in composition:
-                            with st.expander("📈 Balance Size Distribution", expanded=True):
-                                st.dataframe(composition['by_balance_size'], use_container_width=True)
-
-                        # Show red flags
-                        st.markdown("#### 🚨 Red Flags Detected")
-
-                        red_flag_count = 0
-                        if red_flags['statute_issues']['past_statute_count'] > 0:
-                            red_flag_count += 1
-                        if red_flags['missing_contacts']['count'] > 0:
-                            red_flag_count += 1
-                        if red_flags['small_balances']['count'] > 0:
-                            red_flag_count += 1
-                        if red_flags['concentration']['top_10_pct'] > 20:
-                            red_flag_count += 1
-
-                        if red_flag_count > 0:
-                            st.warning(f"⚠️ Found {red_flag_count} risk categories")
-                        else:
-                            st.success("✅ No major red flags detected")
-
-                        flag_col1, flag_col2 = st.columns(2)
-
-                        with flag_col1:
+                    with flag_col1:
                             # Statute issues
                             if red_flags['statute_issues']['past_statute_count'] > 0:
                                 st.error(f"⚠️ **Statute-Barred Debt**: {red_flags['statute_issues']['past_statute_count']:,} accounts (€{red_flags['statute_issues']['past_statute_value']:,.0f})")
@@ -742,7 +724,7 @@ def debt_collection_pricing_app():
                             if red_flags['missing_contacts']['count'] > 0:
                                 st.warning(f"📞 **Missing Contacts**: {red_flags['missing_contacts']['count']:,} accounts ({red_flags['missing_contacts']['pct']:.1f}%)")
 
-                        with flag_col2:
+                    with flag_col2:
                             # Small balances
                             if red_flags['small_balances']['count'] > 0:
                                 st.info(f"💰 **Small Balances**: {red_flags['small_balances']['count']:,} accounts (<€500)")
@@ -751,73 +733,73 @@ def debt_collection_pricing_app():
                             if red_flags['concentration']['top_10_pct'] > 20:
                                 st.warning(f"🎯 **Concentration Risk**: Top 10 = {red_flags['concentration']['top_10_pct']:.1f}%")
 
-                        # Show ERC adjustments
-                        st.markdown("---")
-                        st.markdown("#### 💡 Risk-Adjusted Recovery Rate")
+                    # Show ERC adjustments
+                    st.markdown("---")
+                    st.markdown("#### 💡 Risk-Adjusted Recovery Rate")
 
-                        erc_col1, erc_col2, erc_col3 = st.columns(3)
-                        with erc_col1:
+                    erc_col1, erc_col2, erc_col3 = st.columns(3)
+                    with erc_col1:
                             st.metric("Base Recovery Rate", f"{erc_analysis['base_recovery_rate']:.1%}")
-                        with erc_col2:
+                    with erc_col2:
                             adjustment_pct = (erc_analysis['adjusted_recovery_rate'] - erc_analysis['base_recovery_rate'])
                             st.metric(
                                 "Risk-Adjusted Rate",
                                 f"{erc_analysis['adjusted_recovery_rate']:.1%}",
                                 delta=f"{adjustment_pct:+.1%}"
                             )
-                        with erc_col3:
+                    with erc_col3:
                             st.metric("ERC Impact", f"€{erc_analysis['total_adjustment']:,.0f}")
 
-                        if len(erc_analysis['adjustments']) > 0:
+                    if len(erc_analysis['adjustments']) > 0:
                             with st.expander("📋 View Detailed Adjustments"):
                                 st.dataframe(erc_analysis['adjustment_summary'], use_container_width=True)
 
-                        # Use values for pricing
-                        face_value = auto_face_value
-                        portfolio_name = uploaded_portfolio.name.replace('.csv', '').replace('.xlsx', '').replace('.xls', '')
+                    # Use values for pricing
+                    face_value = auto_face_value
+                    # portfolio_name is already provided as parameter
 
-                        # Store both recovery rates for comparison
-                        base_recovery_rate = base_recovery_estimate
-                        risk_adjusted_recovery_rate = erc_analysis['adjusted_recovery_rate']
+                    # Store both recovery rates for comparison
+                    base_recovery_rate = base_recovery_estimate
+                    risk_adjusted_recovery_rate = erc_analysis['adjusted_recovery_rate']
 
-                        st.markdown("---")
-                        st.markdown("### 💰 Pricing Calculation")
-                        st.info("💡 We'll calculate pricing using both the standard and risk-adjusted recovery rates for comparison")
+                    st.markdown("---")
+                    st.markdown("### 💰 Pricing Calculation")
+                    st.info("💡 We'll calculate pricing using both the standard and risk-adjusted recovery rates for comparison")
 
-                        # Allow user to choose or customize
-                        recovery_method = st.radio(
+                    # Allow user to choose or customize
+                    recovery_method = st.radio(
                             "Recovery Rate to Use:",
                             ["🎯 Use Risk-Adjusted Rate", "📊 Use Custom Rate", "📈 Compare Both"],
                             horizontal=True
-                        )
+                    )
 
-                        if recovery_method == "📊 Use Custom Rate":
-                            recovery_rate = st.slider(
-                                "Custom Recovery Rate (%)",
-                                min_value=10,
-                                max_value=60,
-                                value=int(base_recovery_estimate * 100),
-                                step=5,
-                                help="Override with your own estimate",
-                                key="custom_recovery"
-                            ) / 100
-                            use_comparison = False
-                        elif recovery_method == "🎯 Use Risk-Adjusted Rate":
-                            recovery_rate = risk_adjusted_recovery_rate
-                            use_comparison = False
-                        else:  # Compare Both
-                            recovery_rate = base_recovery_estimate
-                            use_comparison = True
-
-                    else:
-                        st.error("Could not find balance/amount column in file. Please select manual entry.")
-                        face_value = None
+                    if recovery_method == "📊 Use Custom Rate":
+                        recovery_rate = st.slider(
+                            "Custom Recovery Rate (%)",
+                            min_value=10,
+                            max_value=60,
+                            value=int(base_recovery_estimate * 100),
+                            step=5,
+                            help="Override with your own estimate",
+                            key="custom_recovery"
+                        ) / 100
                         use_comparison = False
+                    elif recovery_method == "🎯 Use Risk-Adjusted Rate":
+                        recovery_rate = risk_adjusted_recovery_rate
+                        use_comparison = False
+                    else:  # Compare Both
+                        recovery_rate = base_recovery_estimate
+                        use_comparison = True
 
-                except Exception as e:
-                    st.error(f"Error loading file: {str(e)}")
+                else:
+                    st.error("Could not find balance/amount column in file. Please select manual entry.")
                     face_value = None
                     use_comparison = False
+
+            except Exception as e:
+                st.error(f"Error loading file: {str(e)}")
+                face_value = None
+                use_comparison = False
             else:
                 st.info("👆 Upload a portfolio file to automatically calculate face value and analyze risks")
                 face_value = None
