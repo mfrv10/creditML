@@ -1133,6 +1133,33 @@ def debt_collection_pricing_app(df=None, portfolio_name=None):
 
         # Calculate button (only show if we have data)
         if face_value is not None and st.button("💰 Calculate Pricing", type="primary", use_container_width=True):
+            # Initialize variables for PDF generation
+            composition = None
+            red_flags = None
+            erc_analysis = None
+
+            # If in comparison mode (file upload with risk analysis), recalculate for PDF
+            if use_comparison and df is not None:
+                # Prepare dataframe with Current_Balance column for analysis
+                df_for_analysis = df.copy()
+
+                # Auto-detect balance column
+                balance_cols = [col for col in df_for_analysis.columns
+                              if any(term in col.lower() for term in ['balance', 'amount', 'principal', 'outstanding'])]
+
+                if balance_cols:
+                    df_for_analysis['Current_Balance'] = df_for_analysis[balance_cols[0]]
+
+                    # Run due diligence for PDF data
+                    dd_analyzer = PortfolioDueDiligence(
+                        df=df_for_analysis,
+                        base_recovery_rate=base_recovery_rate,
+                        statute_years=5
+                    )
+                    composition = dd_analyzer.analyze_composition()
+                    red_flags = dd_analyzer.check_red_flags()
+                    erc_analysis = dd_analyzer.calculate_adjusted_erc()
+
             with st.spinner("Calculating pricing..."):
                 # Check if we need to calculate comparison
                 if use_comparison:
@@ -1612,9 +1639,22 @@ def debt_collection_pricing_app(df=None, portfolio_name=None):
 
             if analyze_btn:
                 with st.spinner("Analyzing portfolio..."):
+                    # Prepare dataframe with Current_Balance column
+                    df_for_dd = df_portfolio.copy()
+
+                    # Auto-detect balance column and standardize
+                    balance_cols = [col for col in df_for_dd.columns
+                                  if any(term in col.lower() for term in ['balance', 'amount', 'principal', 'outstanding'])]
+
+                    if balance_cols:
+                        df_for_dd['Current_Balance'] = df_for_dd[balance_cols[0]]
+                    elif 'Current_Balance' not in df_for_dd.columns:
+                        st.error("Could not find a balance column. Please ensure your file has a column with 'balance', 'amount', 'principal', or 'outstanding' in the name.")
+                        st.stop()
+
                     # Run due diligence
                     dd = PortfolioDueDiligence(
-                        df_portfolio,
+                        df_for_dd,
                         base_recovery_rate=base_recovery,
                         statute_years=statute_yrs
                     )
