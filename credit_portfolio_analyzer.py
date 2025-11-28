@@ -294,7 +294,13 @@ def create_debt_pricing_pdf(
 
 
 def main():
-    st.title("🏦 Automated Credit Portfolio Analyzer")
+    # Page configuration
+    st.set_page_config(page_title="Credit Portfolio Analyzer", layout="wide", initial_sidebar_state="expanded")
+
+    # Header
+    st.title("🏦 Credit Portfolio Analyzer")
+    st.markdown("### ML-Driven Portfolio Analysis & Debt Pricing")
+    st.markdown("---")
 
     # Initialize session state for persistent data
     if 'uploaded_df' not in st.session_state:
@@ -303,11 +309,22 @@ def main():
         st.session_state.portfolio_name = None
     if 'data_info' not in st.session_state:
         st.session_state.data_info = None
+    if 'ml_results' not in st.session_state:
+        st.session_state.ml_results = None
+    if 'analysis_complete' not in st.session_state:
+        st.session_state.analysis_complete = False
 
-    # Unified file upload section (before mode selection)
-    st.markdown("### 📁 Upload Portfolio File")
+    # Progress indicator
+    if st.session_state.uploaded_df is None:
+        st.info("👉 **Step 1:** Upload your portfolio file to begin")
+    elif not st.session_state.analysis_complete:
+        st.info("👉 **Step 2:** ML analysis in progress...")
+    else:
+        st.success("✅ **Ready:** Portfolio analyzed - Choose your analysis path below")
 
-    # Sidebar settings
+    st.markdown("---")
+
+    # Sidebar settings (always visible)
     with st.sidebar:
         st.header("⚙️ Settings")
 
@@ -329,27 +346,31 @@ def main():
         )
 
         st.markdown("---")
-        st.markdown("### 📊 What This Tool Does:")
+        st.markdown("### 📊 ML-Driven Analysis:")
         st.markdown("""
-        1. **Auto-detects** file structure
-        2. **AI-powered** PDF/Image parsing (Gemini)
-        3. **ML Risk Scoring** for each account
-        4. **Financial Ratios** calculation
-        5. **Portfolio Valuation**
-        6. **Risk Metrics** (VaR, Expected Loss)
-        7. **Debt Collection Pricing**
-        8. **Due Diligence Analysis**
+        **Step 1:** Upload & Parse
+        **Step 2:** ML Risk Scoring 🎯
+        **Step 3:** Choose Analysis Path
+
+        **Features:**
+        - AI Document Parsing (Gemini)
+        - ML Default Prediction
+        - Risk-Adjusted Pricing
+        - Due Diligence Analysis
+        - Professional Reports
         """)
 
-    # File upload (shared across modes)
+    # STEP 1: File Upload
+    st.markdown("## 📁 STEP 1: Upload Portfolio")
+
     file_types = ['csv', 'xlsx', 'xls']
     if use_gemini:
         file_types.extend(['pdf', 'png', 'jpg', 'jpeg'])
 
     uploaded_file = st.file_uploader(
-        "Upload Credit Portfolio File (Works for all analysis modes)",
+        "Upload your credit portfolio file",
         type=file_types,
-        help="Upload once - use for both Active Portfolio Analysis and Debt Pricing",
+        help="Supports CSV, Excel, PDF, and images (with Gemini AI)",
         key="main_file_upload"
     )
 
@@ -412,25 +433,67 @@ def main():
 
     # Show current file status
     if st.session_state.uploaded_df is not None:
-        col1, col2, col3 = st.columns(3)
+        st.markdown("## ✅ Portfolio Loaded")
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("📄 Current File", st.session_state.portfolio_name)
+            st.metric("📄 File", st.session_state.portfolio_name[:20] + "..." if len(st.session_state.portfolio_name) > 20 else st.session_state.portfolio_name)
         with col2:
-            st.metric("📊 Records", f"{len(st.session_state.uploaded_df):,}")
+            st.metric("📊 Accounts", f"{len(st.session_state.uploaded_df):,}")
         with col3:
-            st.metric("🔧 Columns", f"{len(st.session_state.uploaded_df.columns)}")
+            st.metric("🔧 Fields", f"{len(st.session_state.uploaded_df.columns)}")
+        with col4:
+            total_balance = st.session_state.uploaded_df.get('balance', st.session_state.uploaded_df.get('credit_limit', pd.Series([0]))).sum()
+            st.metric("💰 Total", f"${total_balance:,.0f}")
 
-    st.markdown("---")
+        st.markdown("---")
 
-    # Mode selector (after file upload)
-    mode = st.radio(
-        "Select Analysis Mode:",
-        ["📊 Active Portfolio Analysis", "💰 Debt Collection Pricing"],
-        horizontal=True
-    )
+        # STEP 2: Choose Analysis Path
+        st.markdown("## 🎯 STEP 2: Choose Analysis Path")
 
-    # Check if data is loaded
-    if st.session_state.uploaded_df is None:
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("""
+            ### 📊 Active Portfolio Analysis
+            **For managing your current portfolio**
+
+            ✓ ML Risk Scoring for each account
+            ✓ Default Probability Predictions
+            ✓ Expected Loss Analysis
+            ✓ Portfolio Health Metrics
+            ✓ Risk Dashboard & Reports
+
+            *Best for: Active loan portfolio management*
+            """)
+            if st.button("📊 Analyze Active Portfolio", type="primary", use_container_width=True):
+                mode = "📊 Active Portfolio Analysis"
+
+        with col2:
+            st.markdown("""
+            ### 💰 Debt Collection Pricing
+            **For pricing charged-off debt portfolios**
+
+            ✓ ML-Driven Due Diligence
+            ✓ Risk-Adjusted Pricing
+            ✓ P/C Ratio & DCF Methods
+            ✓ Cash Flow Projections
+            ✓ Professional PDF Reports
+
+            *Best for: Purchasing NPL portfolios*
+            """)
+            if st.button("💰 Price Debt Portfolio", type="primary", use_container_width=True):
+                mode = "💰 Debt Collection Pricing"
+
+        # Traditional mode selector (for navigation)
+        st.markdown("---")
+        mode = st.radio(
+            "Or use quick selector:",
+            ["📊 Active Portfolio Analysis", "💰 Debt Collection Pricing"],
+            horizontal=True,
+            label_visibility="collapsed"
+        )
+
+    else:
         st.info("👆 Upload a credit portfolio file to begin")
         st.stop()
 
@@ -441,15 +504,367 @@ def main():
         )
         return
 
-    # Original app continues for Active Portfolio Analysis
-    st.markdown("### 📊 Active Portfolio Analysis")
+    # Active Portfolio Analysis
+    st.markdown("---")
+    st.markdown("## 📊 Active Portfolio Analysis")
+    st.markdown("### 🎯 ML-Driven Risk Assessment & Portfolio Management")
 
     # Use data from session state
     df = st.session_state.uploaded_df
     data_info = st.session_state.data_info
 
-    # Display file understanding
-    with st.expander("📋 File Structure Detected", expanded=False):
+    # STEP 3: ML Risk Scoring (PROMINENT SECTION)
+    st.markdown("---")
+    st.markdown("## 🤖 STEP 3: ML Risk Analysis")
+
+    with st.spinner("🔄 Running ML credit risk model..."):
+        risk_model = CreditRiskModel()
+        df = risk_model.score_portfolio(df)
+
+    st.success("✅ ML Risk Scoring Complete")
+
+    # Key ML Metrics - Large and Prominent
+    st.markdown("### 📊 ML Risk Dashboard")
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric(
+            "Portfolio Risk Score",
+            f"{df['risk_score'].mean():.2f}",
+            delta=f"±{df['risk_score'].std():.2f} std",
+            help="Average ML-predicted risk score across all accounts"
+        )
+    with col2:
+        default_rate = df['default_probability'].mean()
+        st.metric(
+            "Avg Default Probability",
+            f"{default_rate:.2%}",
+            help="ML-predicted likelihood of default"
+        )
+    with col3:
+        high_risk = (df['risk_category'] == 'High Risk').sum()
+        high_risk_pct = (high_risk / len(df)) * 100
+        st.metric(
+            "High Risk Accounts",
+            f"{high_risk:,}",
+            delta=f"{high_risk_pct:.1f}%",
+            help="Accounts flagged as high default risk by ML model"
+        )
+    with col4:
+        model_auc = risk_model.model_performance.get('auc', 0.75)
+        st.metric(
+            "Model Accuracy (AUC)",
+            f"{model_auc:.3f}",
+            help="Model performance metric (0.5=random, 1.0=perfect)"
+        )
+
+    # Risk Distribution Visualization - Prominent
+    st.markdown("#### 📈 Risk Distribution Across Portfolio")
+
+    col_chart1, col_chart2 = st.columns(2)
+
+    with col_chart1:
+        # Histogram of default probabilities
+        fig_risk = px.histogram(
+            df,
+            x='default_probability',
+            color='risk_category',
+            nbins=50,
+            title="Default Probability Distribution",
+            color_discrete_map={
+                'Low Risk': '#2ecc71',
+                'Medium Risk': '#f39c12',
+                'High Risk': '#e74c3c'
+            },
+            labels={'default_probability': 'Default Probability', 'count': 'Number of Accounts'}
+        )
+        fig_risk.update_layout(height=400)
+        st.plotly_chart(fig_risk, use_container_width=True)
+
+    with col_chart2:
+        # Pie chart of risk categories
+        risk_counts = df['risk_category'].value_counts()
+        fig_pie = px.pie(
+            values=risk_counts.values,
+            names=risk_counts.index,
+            title="Portfolio Risk Composition",
+            color=risk_counts.index,
+            color_discrete_map={
+                'Low Risk': '#2ecc71',
+                'Medium Risk': '#f39c12',
+                'High Risk': '#e74c3c'
+            }
+        )
+        fig_pie.update_layout(height=400)
+        st.plotly_chart(fig_pie, use_container_width=True)
+
+    # STEP 4: Portfolio Health & Financial Metrics
+    st.markdown("---")
+    st.markdown("## 💰 STEP 4: Portfolio Health & Financial Metrics")
+
+    with st.spinner("📊 Calculating portfolio metrics..."):
+        analyzer = PortfolioAnalyzer(df)
+        metrics = analyzer.calculate_all_metrics()
+
+    # Portfolio Health Score (Prominent)
+    st.markdown("### 🏥 Portfolio Health Score")
+
+    # Calculate custom health metrics
+    expected_loss = metrics['expected_loss']
+    total_outstanding = metrics['total_outstanding']
+    loss_rate = (expected_loss / total_outstanding) if total_outstanding > 0 else 0
+    recovery_rate = 1 - loss_rate
+
+    # Overall health score (0-100)
+    health_score = (
+        (recovery_rate * 40) +  # Recovery rate worth 40 points
+        ((1 - default_rate) * 30) +  # Low default probability worth 30 points
+        (min(metrics['payment_rate'], 1.0) * 20) +  # Payment rate worth 20 points
+        ((1 - min(loss_rate, 1.0)) * 10)  # Low loss rate worth 10 points
+    ) * 100
+
+    health_color = "🟢" if health_score >= 70 else "🟡" if health_score >= 50 else "🔴"
+    health_status = "Healthy" if health_score >= 70 else "Moderate" if health_score >= 50 else "At Risk"
+
+    col1, col2, col3, col4, col5 = st.columns(5)
+
+    with col1:
+        st.metric(
+            f"{health_color} Health Score",
+            f"{health_score:.1f}/100",
+            delta=health_status,
+            help="Overall portfolio health based on multiple risk factors"
+        )
+
+    with col2:
+        st.metric(
+            "Expected Recovery",
+            f"{recovery_rate:.2%}",
+            delta=f"${total_outstanding * recovery_rate:,.0f}",
+            help="Estimated recovery rate based on ML predictions"
+        )
+
+    with col3:
+        st.metric(
+            "Expected Loss Rate",
+            f"{loss_rate:.2%}",
+            delta=f"-${expected_loss:,.0f}" if expected_loss > 0 else "$0",
+            delta_color="inverse",
+            help="Percentage of portfolio expected to default"
+        )
+
+    with col4:
+        expected_collections = total_outstanding * recovery_rate
+        st.metric(
+            "Expected Collections",
+            f"${expected_collections:,.0f}",
+            delta=f"{(expected_collections/total_outstanding)*100:.1f}% of outstanding",
+            help="ML-estimated total collections"
+        )
+
+    with col5:
+        healthy_accounts = len(df[df['risk_category'] == 'Low Risk'])
+        healthy_pct = (healthy_accounts / len(df)) * 100
+        st.metric(
+            "Healthy Accounts",
+            f"{healthy_accounts:,}",
+            delta=f"{healthy_pct:.1f}%",
+            help="Low risk accounts with high recovery probability"
+        )
+
+    # Detailed Metrics in Expanders
+    with st.expander("💰 Exposure & Balance Metrics", expanded=False):
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.metric("Total Exposure", f"${metrics['total_exposure']:,.0f}")
+            st.metric("Total Outstanding", f"${metrics['total_outstanding']:,.0f}")
+
+        with col2:
+            st.metric("Avg Credit Limit", f"${metrics['avg_credit_limit']:,.0f}")
+            st.metric("Avg Utilization Rate", f"{metrics['avg_utilization']:.2%}")
+
+        with col3:
+            st.metric("High Utilization %", f"{metrics['high_utilization_pct']:.1%}")
+            st.metric("Payment Rate", f"{metrics['payment_rate']:.2%}")
+
+    with st.expander("⚠️ Risk Metrics & Loss Estimates", expanded=False):
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.metric("Expected Loss", f"${metrics['expected_loss']:,.0f}")
+            st.metric("Loss Given Default", f"{metrics['lgd']:.2%}")
+
+        with col2:
+            st.metric("Value at Risk (95%)", f"${metrics['var_95']:,.0f}")
+            st.metric("Default Probability", f"{default_rate:.2%}")
+
+        with col3:
+            st.metric("Risk-Adjusted Value", f"${metrics['total_outstanding'] - expected_loss:,.0f}")
+
+    with st.expander("📋 Detailed Financial Ratios", expanded=False):
+        ratios_df = pd.DataFrame({
+            'Ratio': list(metrics['ratios'].keys()),
+            'Value': list(metrics['ratios'].values())
+        })
+        st.dataframe(ratios_df, use_container_width=True)
+
+    # STEP 5: ML-Based Risk Segmentation & Analysis
+    st.markdown("---")
+    st.markdown("## 🎯 STEP 5: ML-Based Risk Segmentation")
+
+    with st.expander("💎 Portfolio Valuation Summary", expanded=False):
+        valuation = analyzer.calculate_portfolio_value()
+
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Book Value", f"${valuation['book_value']:,.0f}")
+        with col2:
+            st.metric("Risk-Adjusted Value", f"${valuation['risk_adjusted_value']:,.0f}")
+        with col3:
+            st.metric("Expected Revenue", f"${valuation['expected_revenue']:,.0f}")
+        with col4:
+            st.metric("Net Portfolio Value", f"${valuation['net_value']:,.0f}")
+
+        # Valuation breakdown chart
+        fig_val = go.Figure(data=[
+            go.Bar(
+                x=['Book Value', 'Expected Loss', 'Risk-Adjusted Value'],
+                y=[valuation['book_value'], -valuation['expected_loss'], valuation['risk_adjusted_value']],
+                marker_color=['#3498db', '#e74c3c', '#2ecc71']
+            )
+        ])
+        fig_val.update_layout(title="Portfolio Valuation Breakdown", yaxis_title="Value ($)")
+        st.plotly_chart(fig_val, use_container_width=True)
+
+    # Risk Segmentation - Prominent Section
+    st.markdown("### 📊 Risk Segmentation Analysis")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        # Risk by credit limit bands
+        df['limit_band'] = pd.cut(
+            df['credit_limit'],
+            bins=[0, 50000, 100000, 200000, 1000000],
+            labels=['<50K', '50-100K', '100-200K', '>200K']
+        )
+        risk_by_limit = df.groupby('limit_band')['default_probability'].mean().reset_index()
+        fig_bar = px.bar(
+            risk_by_limit,
+            x='limit_band',
+            y='default_probability',
+            title="ML Default Probability by Credit Limit",
+            labels={'default_probability': 'Avg Default Probability', 'limit_band': 'Credit Limit Band'},
+            color='default_probability',
+            color_continuous_scale=['#2ecc71', '#f39c12', '#e74c3c']
+        )
+        st.plotly_chart(fig_bar, use_container_width=True)
+
+    with col2:
+        # Risk score distribution by category
+        fig_box = px.box(
+            df,
+            x='risk_category',
+            y='risk_score',
+            title="Risk Score Distribution by Category",
+            color='risk_category',
+            color_discrete_map={
+                'Low Risk': '#2ecc71',
+                'Medium Risk': '#f39c12',
+                'High Risk': '#e74c3c'
+            },
+            labels={'risk_score': 'ML Risk Score', 'risk_category': 'Risk Category'}
+        )
+        st.plotly_chart(fig_box, use_container_width=True)
+
+    # Detailed risk breakdown table
+    with st.expander("📋 Detailed Risk Breakdown by Category", expanded=False):
+        risk_summary = df.groupby('risk_category').agg({
+            'account_id': 'count',
+            'credit_limit': ['sum', 'mean'],
+            'outstanding_balance': ['sum', 'mean'],
+            'default_probability': 'mean',
+            'risk_score': 'mean'
+        }).round(2)
+
+        risk_summary.columns = ['Count', 'Total Exposure', 'Avg Exposure', 'Total Outstanding', 'Avg Outstanding', 'Avg Default Prob', 'Avg Risk Score']
+        st.dataframe(risk_summary.style.format({
+            'Total Exposure': '${:,.0f}',
+            'Avg Exposure': '${:,.0f}',
+            'Total Outstanding': '${:,.0f}',
+            'Avg Outstanding': '${:,.0f}',
+            'Avg Default Prob': '{:.2%}',
+            'Avg Risk Score': '{:.2f}'
+        }), use_container_width=True)
+
+    # High-risk accounts detail
+    st.markdown("---")
+    st.markdown("### ⚠️ High Risk Accounts - Action Required")
+
+    high_risk_df = df.nlargest(20, 'default_probability')[
+        ['account_id', 'credit_limit', 'outstanding_balance', 'utilization_rate',
+         'default_probability', 'risk_category', 'risk_score']
+    ].round(4)
+
+    st.dataframe(
+        high_risk_df.style.format({
+            'credit_limit': '${:,.0f}',
+            'outstanding_balance': '${:,.0f}',
+            'utilization_rate': '{:.2%}',
+            'default_probability': '{:.2%}',
+            'risk_score': '{:.2f}'
+        }).background_gradient(subset=['default_probability'], cmap='Reds'),
+        use_container_width=True
+    )
+
+    # STEP 6: Reports & Data Export
+    st.markdown("---")
+    st.markdown("## 📥 STEP 6: Download Reports & Scored Data")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        # Generate Excel report
+        report_gen = ReportGenerator(df, metrics, valuation)
+        excel_buffer = report_gen.create_excel_report()
+
+        st.download_button(
+            label="📊 Download Excel Report",
+            data=excel_buffer,
+            file_name=f"credit_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+
+    with col2:
+        # Generate PDF summary
+        pdf_buffer = report_gen.create_pdf_report()
+
+        st.download_button(
+            label="📄 Download PDF Summary",
+            data=pdf_buffer,
+            file_name=f"portfolio_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+            mime="application/pdf",
+            use_container_width=True
+        )
+
+    with col3:
+        # Generate scored portfolio CSV
+        csv_buffer = BytesIO()
+        df.to_csv(csv_buffer, index=False)
+        csv_buffer.seek(0)
+
+        st.download_button(
+            label="📋 Download Scored Portfolio",
+            data=csv_buffer,
+            file_name=f"scored_portfolio_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+
+    # Optional: File structure details
+    with st.expander("📋 File Structure & Column Mapping Details", expanded=False):
         col1, col2 = st.columns(2)
         with col1:
             st.metric("Total Records", f"{data_info['num_records']:,}")
@@ -465,357 +880,6 @@ def main():
         else:
             st.markdown("**Detected Columns:**")
             st.dataframe(data_info.get('column_mapping', pd.DataFrame()), use_container_width=True)
-
-    # Step 3: Run ML Risk Model
-            st.markdown("---")
-            st.subheader("🤖 ML Risk Scoring")
-            
-            with st.spinner("Running credit risk model..."):
-                risk_model = CreditRiskModel()
-                df = risk_model.score_portfolio(df)
-            
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric(
-                    "Portfolio Risk Score",
-                    f"{df['risk_score'].mean():.2f}",
-                    delta=f"{df['risk_score'].std():.2f} std"
-                )
-            with col2:
-                default_rate = df['default_probability'].mean()
-                st.metric("Avg Default Probability", f"{default_rate:.2%}")
-            with col3:
-                high_risk = (df['risk_category'] == 'High Risk').sum()
-                st.metric("High Risk Accounts", f"{high_risk:,}")
-            with col4:
-                model_auc = risk_model.model_performance.get('auc', 0.75)
-                st.metric("Model AUC", f"{model_auc:.3f}")
-            
-            # Risk Distribution Chart
-            fig_risk = px.histogram(
-                df, 
-                x='default_probability',
-                color='risk_category',
-                nbins=50,
-                title="Risk Distribution Across Portfolio",
-                color_discrete_map={
-                    'Low Risk': '#2ecc71',
-                    'Medium Risk': '#f39c12',
-                    'High Risk': '#e74c3c'
-                }
-            )
-            st.plotly_chart(fig_risk, use_container_width=True)
-            
-            # Step 4: Calculate Portfolio Metrics
-            st.markdown("---")
-            st.subheader("📊 Portfolio Financial Metrics")
-            
-            analyzer = PortfolioAnalyzer(df)
-            metrics = analyzer.calculate_all_metrics()
-            
-            # Display key metrics
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.markdown("#### 💰 Exposure Metrics")
-                st.metric("Total Exposure", f"${metrics['total_exposure']:,.0f}")
-                st.metric("Avg Credit Limit", f"${metrics['avg_credit_limit']:,.0f}")
-                st.metric("Total Outstanding", f"${metrics['total_outstanding']:,.0f}")
-            
-            with col2:
-                st.markdown("#### 📈 Utilization Metrics")
-                st.metric("Avg Utilization Rate", f"{metrics['avg_utilization']:.2%}")
-                st.metric("High Utilization %", f"{metrics['high_utilization_pct']:.1%}")
-                st.metric("Payment Rate", f"{metrics['payment_rate']:.2%}")
-            
-            with col3:
-                st.markdown("#### ⚠️ Risk Metrics")
-                st.metric("Expected Loss", f"${metrics['expected_loss']:,.0f}")
-                st.metric("Value at Risk (95%)", f"${metrics['var_95']:,.0f}")
-                st.metric("Loss Given Default", f"{metrics['lgd']:.2%}")
-            
-            # Financial Ratios Table
-            with st.expander("📋 Detailed Financial Ratios", expanded=False):
-                ratios_df = pd.DataFrame({
-                    'Ratio': list(metrics['ratios'].keys()),
-                    'Value': list(metrics['ratios'].values())
-                })
-                st.dataframe(ratios_df, use_container_width=True)
-            
-            # Step 5: Portfolio Valuation
-            st.markdown("---")
-            st.subheader("💎 Portfolio Valuation")
-            
-            valuation = analyzer.calculate_portfolio_value()
-            
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Book Value", f"${valuation['book_value']:,.0f}")
-            with col2:
-                st.metric("Risk-Adjusted Value", f"${valuation['risk_adjusted_value']:,.0f}")
-            with col3:
-                st.metric("Expected Revenue", f"${valuation['expected_revenue']:,.0f}")
-            with col4:
-                st.metric("Net Portfolio Value", f"${valuation['net_value']:,.0f}")
-            
-            # Valuation breakdown
-            fig_val = go.Figure(data=[
-                go.Bar(
-                    x=['Book Value', 'Expected Loss', 'Risk-Adjusted Value'],
-                    y=[valuation['book_value'], -valuation['expected_loss'], valuation['risk_adjusted_value']],
-                    marker_color=['#3498db', '#e74c3c', '#2ecc71']
-                )
-            ])
-            fig_val.update_layout(title="Portfolio Valuation Breakdown", yaxis_title="Value ($)")
-            st.plotly_chart(fig_val, use_container_width=True)
-            
-            # NEW: Cash Flow-Based Valuation Comparison
-            if 'cash_flow_analysis' in valuation:
-                st.markdown("---")
-                st.subheader("📊 Cash Flow-Based Valuation: Method Comparison")
-                
-                st.info("""
-                **Two valuation approaches calculated:**
-                - **Method A (Static Pool Analysis)**: Best for revolving credit like credit cards
-                - **Method B (Dynamic Cash Flow Model)**: Best for term loans with fixed payments
-                """)
-                
-                cf_analysis = valuation['cash_flow_analysis']
-                method_a = cf_analysis['method_a']
-                method_b = cf_analysis['method_b']
-                
-                # Side-by-side comparison
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.markdown("### 📈 Method A: Static Pool Analysis")
-                    st.markdown("*Revolving Credit Approach*")
-                    st.metric("NPV", f"${method_a['npv']:,.0f}")
-                    st.metric("IRR (Annual)", f"{method_a['irr_annual']:.2f}%")
-                    st.metric("MOIC", f"{method_a['moic']:.2f}x")
-                    st.metric("Payback Period", f"{method_a['payback_period_months']:.1f} months")
-                    st.metric("Total Collections (24mo)", f"${method_a['total_collections']:,.0f}")
-                    st.metric("Total Losses (24mo)", f"${method_a['total_losses']:,.0f}")
-                    
-                    with st.expander("ℹ️ About Method A"):
-                        st.markdown("""
-                        **Static Pool Analysis:**
-                        - Segments portfolio by risk cohorts
-                        - Projects aggregate behavior per cohort
-                        - Standard for credit card portfolios
-                        - Fast computation
-                        - Good for regulatory reporting
-                        """)
-                
-                with col2:
-                    st.markdown("### 📉 Method B: Dynamic Cash Flow Model")
-                    st.markdown("*Term Loan Approach*")
-                    st.metric("NPV", f"${method_b['npv']:,.0f}")
-                    st.metric("IRR (Annual)", f"{method_b['irr_annual']:.2f}%")
-                    st.metric("MOIC", f"{method_b['moic']:.2f}x")
-                    st.metric("Payback Period", f"{method_b['payback_period_months']:.1f} months")
-                    st.metric("Total Collections (24mo)", f"${method_b['total_collections']:,.0f}")
-                    st.metric("Total Losses (24mo)", f"${method_b['total_losses']:,.0f}")
-                    
-                    with st.expander("ℹ️ About Method B"):
-                        st.markdown("""
-                        **Dynamic Cash Flow Model:**
-                        - Models each loan individually
-                        - Specific amortization schedules
-                        - Standard for term loans
-                        - Higher computational cost
-                        - Best for M&A valuation
-                        """)
-                
-                # Difference highlights
-                st.markdown("### 🔍 Key Differences")
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    npv_diff = method_a['npv'] - method_b['npv']
-                    st.metric(
-                        "NPV Difference", 
-                        f"${abs(npv_diff):,.0f}",
-                        delta=f"{npv_diff/method_b['npv']*100:.1f}% vs Method B" if method_b['npv'] != 0 else "N/A"
-                    )
-                with col2:
-                    irr_diff = method_a['irr_annual'] - method_b['irr_annual']
-                    st.metric(
-                        "IRR Difference",
-                        f"{abs(irr_diff):.2f}pp",
-                        delta=f"Method A {'higher' if irr_diff > 0 else 'lower'}"
-                    )
-                with col3:
-                    collections_diff = method_a['total_collections'] - method_b['total_collections']
-                    st.metric(
-                        "Collections Difference",
-                        f"${abs(collections_diff):,.0f}",
-                        delta=f"{collections_diff/method_b['total_collections']*100:.1f}% vs Method B" if method_b['total_collections'] != 0 else "N/A"
-                    )
-                
-                # Monthly cash flow comparison chart
-                st.markdown("### 📅 Monthly Cash Flow Projection Comparison")
-                
-                comparison = cf_analysis['comparison']
-                monthly_comp = comparison['monthly_comparison']
-                
-                fig_cf = go.Figure()
-                fig_cf.add_trace(go.Scatter(
-                    x=monthly_comp['Month'],
-                    y=monthly_comp['Static Pool Net CF'],
-                    name='Method A (Static Pool)',
-                    mode='lines+markers',
-                    line=dict(color='#3498db', width=2)
-                ))
-                fig_cf.add_trace(go.Scatter(
-                    x=monthly_comp['Month'],
-                    y=monthly_comp['Dynamic CF Net CF'],
-                    name='Method B (Dynamic CF)',
-                    mode='lines+markers',
-                    line=dict(color='#e74c3c', width=2, dash='dash')
-                ))
-                fig_cf.update_layout(
-                    title="Net Cash Flow Projection: Method A vs Method B",
-                    xaxis_title="Month",
-                    yaxis_title="Net Cash Flow ($)",
-                    hovermode='x unified'
-                )
-                st.plotly_chart(fig_cf, use_container_width=True)
-                
-                # Collections vs Losses comparison
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    fig_coll = go.Figure()
-                    fig_coll.add_trace(go.Bar(
-                        x=['Method A', 'Method B'],
-                        y=[method_a['total_collections'], method_b['total_collections']],
-                        marker_color=['#3498db', '#e74c3c']
-                    ))
-                    fig_coll.update_layout(
-                        title="Total Collections (24 months)",
-                        yaxis_title="Collections ($)"
-                    )
-                    st.plotly_chart(fig_coll, use_container_width=True)
-                
-                with col2:
-                    fig_loss = go.Figure()
-                    fig_loss.add_trace(go.Bar(
-                        x=['Method A', 'Method B'],
-                        y=[method_a['total_losses'], method_b['total_losses']],
-                        marker_color=['#e74c3c', '#c0392b']
-                    ))
-                    fig_loss.update_layout(
-                        title="Total Losses (24 months)",
-                        yaxis_title="Losses ($)"
-                    )
-                    st.plotly_chart(fig_loss, use_container_width=True)
-                
-                # Recommendation
-                st.markdown("### 💡 Which Method Should You Use?")
-                st.info("""
-                **Recommendation based on your portfolio type:**
-                - **Credit Cards / Revolving Credit**: Use **Method A (Static Pool)**
-                  - Faster computation
-                  - Industry standard for credit cards
-                  - Better for large portfolios
-                  
-                - **Term Loans (Auto, Mortgage, Personal)**: Use **Method B (Dynamic CF)**
-                  - More precise for individual loans
-                  - Better for M&A valuation
-                  - Shows loan-specific behavior
-                  
-                - **Mixed Portfolio**: Review both methods and use the average or conservative estimate
-                """)
-            
-            # Step 6: Risk Segmentation
-            st.markdown("---")
-            st.subheader("🎯 Risk Segmentation")
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                # Risk category breakdown
-                risk_counts = df['risk_category'].value_counts()
-                fig_pie = px.pie(
-                    values=risk_counts.values,
-                    names=risk_counts.index,
-                    title="Portfolio Risk Composition",
-                    color=risk_counts.index,
-                    color_discrete_map={
-                        'Low Risk': '#2ecc71',
-                        'Medium Risk': '#f39c12',
-                        'High Risk': '#e74c3c'
-                    }
-                )
-                st.plotly_chart(fig_pie, use_container_width=True)
-            
-            with col2:
-                # Risk by credit limit bands
-                df['limit_band'] = pd.cut(
-                    df['credit_limit'], 
-                    bins=[0, 50000, 100000, 200000, 1000000],
-                    labels=['<50K', '50-100K', '100-200K', '>200K']
-                )
-                risk_by_limit = df.groupby('limit_band')['default_probability'].mean().reset_index()
-                fig_bar = px.bar(
-                    risk_by_limit,
-                    x='limit_band',
-                    y='default_probability',
-                    title="Default Probability by Credit Limit Band",
-                    labels={'default_probability': 'Avg Default Prob', 'limit_band': 'Credit Limit'}
-                )
-                st.plotly_chart(fig_bar, use_container_width=True)
-            
-            # Step 7: Download Reports
-            st.markdown("---")
-            st.subheader("📥 Download Reports")
-            
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                # Generate Excel report
-                report_gen = ReportGenerator(df, metrics, valuation)
-                excel_buffer = report_gen.create_excel_report()
-                
-                st.download_button(
-                    label="📊 Download Excel Report",
-                    data=excel_buffer,
-                    file_name=f"credit_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-            
-            with col2:
-                # Generate PDF summary
-                pdf_buffer = report_gen.create_pdf_report()
-                
-                st.download_button(
-                    label="📄 Download PDF Summary",
-                    data=pdf_buffer,
-                    file_name=f"portfolio_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
-                    mime="application/pdf"
-                )
-            
-            with col3:
-                # Generate scored portfolio CSV
-                csv_buffer = BytesIO()
-                df.to_csv(csv_buffer, index=False)
-                csv_buffer.seek(0)
-                
-                st.download_button(
-                    label="📋 Download Scored Portfolio",
-                    data=csv_buffer,
-                    file_name=f"scored_portfolio_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv"
-                )
-            
-            # High-risk accounts table
-            st.markdown("---")
-            st.subheader("⚠️ High Risk Accounts (Top 20)")
-            high_risk_df = df.nlargest(20, 'default_probability')[
-                ['account_id', 'credit_limit', 'outstanding_balance', 'utilization_rate', 
-                 'default_probability', 'risk_category', 'risk_score']
-            ].round(4)
-            st.dataframe(high_risk_df, use_container_width=True)
 
 
 def debt_collection_pricing_app(df=None, portfolio_name=None):
@@ -924,10 +988,45 @@ def debt_collection_pricing_app(df=None, portfolio_name=None):
                     df_analysis['Current_Balance'] = df_portfolio[balance_col]
 
                     st.markdown("---")
-                    st.markdown("### 🔍 Portfolio Risk Analysis")
+                    st.markdown("### 🤖 ML Risk Analysis & Due Diligence")
 
-                    # Run due diligence analysis
-                    with st.spinner("Analyzing portfolio for risks..."):
+                    # Run ML risk scoring first
+                    with st.spinner("🔄 Running ML risk model on portfolio..."):
+                        from src.ml_models import CreditRiskModel
+
+                        risk_model = CreditRiskModel()
+                        df_analysis = risk_model.score_portfolio(df_analysis)
+
+                        # Calculate ML-based recovery adjustment
+                        ml_avg_default_prob = df_analysis['default_probability'].mean()
+                        ml_recovery_rate = 1 - ml_avg_default_prob  # Simple approach: recovery = 1 - default prob
+
+                        # Show ML results
+                        st.success("✅ ML Risk Scoring Complete")
+
+                        ml_col1, ml_col2, ml_col3 = st.columns(3)
+                        with ml_col1:
+                            st.metric(
+                                "ML Avg Default Probability",
+                                f"{ml_avg_default_prob:.2%}",
+                                help="Average ML-predicted default probability"
+                            )
+                        with ml_col2:
+                            high_risk_pct = (df_analysis['risk_category'] == 'High Risk').sum() / len(df_analysis)
+                            st.metric(
+                                "High Risk Accounts",
+                                f"{high_risk_pct:.1%}",
+                                help="Percentage of accounts flagged as high risk by ML"
+                            )
+                        with ml_col3:
+                            st.metric(
+                                "ML-Based Recovery Estimate",
+                                f"{ml_recovery_rate:.2%}",
+                                help="Estimated recovery based on ML default predictions"
+                            )
+
+                    # Run traditional due diligence analysis
+                    with st.spinner("📊 Running traditional due diligence..."):
                         base_recovery_estimate = 0.30  # Default 30%
                         dd_analyzer = PortfolioDueDiligence(
                             df=df_analysis,
@@ -1025,16 +1124,24 @@ def debt_collection_pricing_app(df=None, portfolio_name=None):
 
                     st.markdown("---")
                     st.markdown("### 💰 Pricing Calculation")
-                    st.info("💡 We'll calculate pricing using both the standard and risk-adjusted recovery rates for comparison")
+                    st.info("💡 Choose your pricing approach: ML-based, Traditional Risk-Adjusted, or Custom")
 
-                    # Allow user to choose or customize
+                    # Allow user to choose recovery method with ML option
                     recovery_method = st.radio(
-                            "Recovery Rate to Use:",
-                            ["🎯 Use Risk-Adjusted Rate", "📊 Use Custom Rate", "📈 Compare Both"],
+                            "Recovery Rate Method:",
+                            ["🤖 Use ML-Based Rate", "🎯 Use Traditional Risk-Adjusted", "📊 Use Custom Rate", "📈 Compare All Methods"],
                             horizontal=True
                     )
 
-                    if recovery_method == "📊 Use Custom Rate":
+                    if recovery_method == "🤖 Use ML-Based Rate":
+                        recovery_rate = ml_recovery_rate
+                        use_comparison = False
+                        st.success(f"✅ Using ML-based recovery rate: {ml_recovery_rate:.2%}")
+                    elif recovery_method == "🎯 Use Traditional Risk-Adjusted":
+                        recovery_rate = risk_adjusted_recovery_rate
+                        use_comparison = False
+                        st.success(f"✅ Using traditional risk-adjusted rate: {risk_adjusted_recovery_rate:.2%}")
+                    elif recovery_method == "📊 Use Custom Rate":
                         recovery_rate = st.slider(
                             "Custom Recovery Rate (%)",
                             min_value=10,
@@ -1045,12 +1152,10 @@ def debt_collection_pricing_app(df=None, portfolio_name=None):
                             key="custom_recovery"
                         ) / 100
                         use_comparison = False
-                    elif recovery_method == "🎯 Use Risk-Adjusted Rate":
-                        recovery_rate = risk_adjusted_recovery_rate
-                        use_comparison = False
-                    else:  # Compare Both
+                    else:  # Compare All Methods
                         recovery_rate = base_recovery_estimate
                         use_comparison = True
+                        st.info("📊 Will compare: Base, ML-Based, and Traditional Risk-Adjusted pricing")
 
                     # File upload mode doesn't use custom curves/ratios
                     custom_curve = None
@@ -1176,7 +1281,23 @@ def debt_collection_pricing_app(df=None, portfolio_name=None):
                         custom_pc_ratio=custom_pc_ratio
                     )
 
-                    # Calculate with risk-adjusted rate
+                    # Calculate with ML-based rate (if available)
+                    results_ml = None
+                    pricer_ml = None
+                    if 'ml_recovery_rate' in locals() and ml_recovery_rate is not None:
+                        pricer_ml = DebtPortfolioPricer(
+                            face_value=face_value,
+                            recovery_rate=ml_recovery_rate,
+                            portfolio_type=portfolio_type,
+                            servicing_costs=servicing_costs,
+                            target_irr=target_irr
+                        )
+                        results_ml = pricer_ml.calculate_both_methods(
+                            custom_curve=custom_curve,
+                            custom_pc_ratio=custom_pc_ratio
+                        )
+
+                    # Calculate with traditional risk-adjusted rate
                     pricer_adjusted = DebtPortfolioPricer(
                         face_value=face_value,
                         recovery_rate=risk_adjusted_recovery_rate,
@@ -1192,105 +1313,212 @@ def debt_collection_pricing_app(df=None, portfolio_name=None):
                     # Display comparison
                     st.markdown("---")
                     st.markdown(f"## 📊 Pricing Comparison: {portfolio_name}")
-                    st.markdown("#### Standard (Base Rate) vs Risk-Adjusted Pricing")
+
+                    if results_ml is not None:
+                        st.markdown("#### Three-Way Comparison: Base vs ML-Based vs Traditional Risk-Adjusted")
+                    else:
+                        st.markdown("#### Standard (Base Rate) vs Traditional Risk-Adjusted Pricing")
 
                     # Comparison metrics
-                    comp_col1, comp_col2, comp_col3, comp_col4 = st.columns(4)
+                    if results_ml is not None:
+                        comp_col1, comp_col2, comp_col3, comp_col4, comp_col5 = st.columns(5)
+                    else:
+                        comp_col1, comp_col2, comp_col3, comp_col4 = st.columns(4)
 
                     with comp_col1:
                         st.metric("Face Value", f"€{face_value:,.0f}")
-                        st.caption("Same for both")
+                        st.caption("Same for all")
 
                     with comp_col2:
                         st.metric("Base Recovery", f"{base_recovery_rate:.1%}")
                         st.caption(f"ERC: €{results_base['portfolio_info']['erc']:,.0f}")
 
-                    with comp_col3:
+                    if results_ml is not None:
+                        with comp_col3:
+                            erc_diff_ml = results_ml['portfolio_info']['erc'] - results_base['portfolio_info']['erc']
+                            st.metric(
+                                "🤖 ML Recovery",
+                                f"{ml_recovery_rate:.1%}",
+                                delta=f"{erc_diff_ml:+,.0f} ERC"
+                            )
+                            st.caption(f"ERC: €{results_ml['portfolio_info']['erc']:,.0f}")
+
+                    with comp_col4 if results_ml is not None else comp_col3:
                         erc_diff = results_adjusted['portfolio_info']['erc'] - results_base['portfolio_info']['erc']
                         st.metric(
-                            "Risk-Adjusted Recovery",
+                            "Traditional Risk-Adj",
                             f"{risk_adjusted_recovery_rate:.1%}",
                             delta=f"{erc_diff:+,.0f} ERC"
                         )
                         st.caption(f"ERC: €{results_adjusted['portfolio_info']['erc']:,.0f}")
 
-                    with comp_col4:
-                        bid_diff = results_adjusted['recommendation']['bid_amount'] - results_base['recommendation']['bid_amount']
-                        bid_diff_pct = bid_diff / results_base['recommendation']['bid_amount'] if results_base['recommendation']['bid_amount'] > 0 else 0
-                        st.metric(
-                            "Price Difference",
-                            f"€{abs(bid_diff):,.0f}",
-                            delta=f"{bid_diff_pct:+.1%}"
-                        )
+                    with comp_col5 if results_ml is not None else comp_col4:
+                        # Show largest difference
+                        if results_ml is not None:
+                            max_bid = max(results_base['recommendation']['bid_amount'],
+                                        results_ml['recommendation']['bid_amount'],
+                                        results_adjusted['recommendation']['bid_amount'])
+                            min_bid = min(results_base['recommendation']['bid_amount'],
+                                        results_ml['recommendation']['bid_amount'],
+                                        results_adjusted['recommendation']['bid_amount'])
+                            bid_range = max_bid - min_bid
+                            st.metric(
+                                "Price Range",
+                                f"€{bid_range:,.0f}",
+                                delta=f"{(bid_range/min_bid)*100:.1f}% spread"
+                            )
+                        else:
+                            bid_diff = results_adjusted['recommendation']['bid_amount'] - results_base['recommendation']['bid_amount']
+                            bid_diff_pct = bid_diff / results_base['recommendation']['bid_amount'] if results_base['recommendation']['bid_amount'] > 0 else 0
+                            st.metric(
+                                "Price Difference",
+                                f"€{abs(bid_diff):,.0f}",
+                                delta=f"{bid_diff_pct:+.1%}"
+                            )
 
                     # Side-by-side comparison
                     st.markdown("---")
-                    compare_col1, compare_col2 = st.columns(2)
 
-                    with compare_col1:
-                        st.markdown("### 📊 Standard Pricing (Base Rate)")
-                        st.markdown(f"**Recovery Rate:** {base_recovery_rate:.1%}")
+                    if results_ml is not None:
+                        # Three-way comparison
+                        compare_col1, compare_col2, compare_col3 = st.columns(3)
 
-                        st.metric("P/C Method", f"€{results_base['pc_method']['price']:,.0f}")
-                        st.caption(f"{results_base['pc_method']['price_as_pct_of_face']:.1%} of Face")
+                        with compare_col1:
+                            st.markdown("### 📊 Base Rate")
+                            st.markdown(f"**Recovery:** {base_recovery_rate:.1%}")
+                            st.metric("Recommended Bid", f"€{results_base['recommendation']['bid_amount']:,.0f}")
+                            decision_color = "green" if results_base['recommendation']['decision'] == 'BUY' else "red"
+                            st.markdown(f"<h4 style='color: {decision_color};'>{'✓ BUY' if results_base['recommendation']['decision'] == 'BUY' else '✗ PASS'}</h4>", unsafe_allow_html=True)
 
-                        st.metric("DCF Method", f"€{results_base['dcf_method']['price']:,.0f}")
-                        st.caption(f"{results_base['dcf_method']['price_as_pct_of_face']:.1%} of Face")
+                        with compare_col2:
+                            st.markdown("### 🤖 ML-Based")
+                            st.markdown(f"**Recovery:** {ml_recovery_rate:.1%}")
+                            ml_bid_diff = results_ml['recommendation']['bid_amount'] - results_base['recommendation']['bid_amount']
+                            st.metric(
+                                "Recommended Bid",
+                                f"€{results_ml['recommendation']['bid_amount']:,.0f}",
+                                delta=f"{ml_bid_diff:+,.0f}"
+                            )
+                            decision_color = "green" if results_ml['recommendation']['decision'] == 'BUY' else "red"
+                            st.markdown(f"<h4 style='color: {decision_color};'>{'✓ BUY' if results_ml['recommendation']['decision'] == 'BUY' else '✗ PASS'}</h4>", unsafe_allow_html=True)
 
-                        margin_base = results_base['recommendation'].get('margin')
-                        st.metric(
-                            "Recommended Bid",
-                            f"€{results_base['recommendation']['bid_amount']:,.0f}",
-                            delta=f"{margin_base:.1%} margin" if margin_base is not None else None
-                        )
-                        decision_color = "green" if results_base['recommendation']['decision'] == 'BUY' else "red"
-                        st.markdown(f"<h3 style='color: {decision_color};'>{'✓ BUY' if results_base['recommendation']['decision'] == 'BUY' else '✗ PASS'}</h3>", unsafe_allow_html=True)
+                        with compare_col3:
+                            st.markdown("### 🎯 Traditional Risk-Adj")
+                            st.markdown(f"**Recovery:** {risk_adjusted_recovery_rate:.1%}")
+                            trad_bid_diff = results_adjusted['recommendation']['bid_amount'] - results_base['recommendation']['bid_amount']
+                            st.metric(
+                                "Recommended Bid",
+                                f"€{results_adjusted['recommendation']['bid_amount']:,.0f}",
+                                delta=f"{trad_bid_diff:+,.0f}"
+                            )
+                            decision_color = "green" if results_adjusted['recommendation']['decision'] == 'BUY' else "red"
+                            st.markdown(f"<h4 style='color: {decision_color};'>{'✓ BUY' if results_adjusted['recommendation']['decision'] == 'BUY' else '✗ PASS'}</h4>", unsafe_allow_html=True)
 
-                    with compare_col2:
-                        st.markdown("### 🎯 Risk-Adjusted Pricing")
-                        st.markdown(f"**Recovery Rate:** {risk_adjusted_recovery_rate:.1%}")
+                        # Recommendation for three-way
+                        st.markdown("---")
+                        st.markdown("### 💡 Recommendation")
 
-                        pc_diff = results_adjusted['pc_method']['price'] - results_base['pc_method']['price']
-                        st.metric(
-                            "P/C Method",
-                            f"€{results_adjusted['pc_method']['price']:,.0f}",
-                            delta=f"{pc_diff:+,.0f}"
-                        )
-                        st.caption(f"{results_adjusted['pc_method']['price_as_pct_of_face']:.1%} of Face")
+                        # Determine which method to recommend
+                        all_bids = [
+                            ("Base", results_base['recommendation']['bid_amount']),
+                            ("ML-Based", results_ml['recommendation']['bid_amount']),
+                            ("Traditional", results_adjusted['recommendation']['bid_amount'])
+                        ]
+                        all_bids_sorted = sorted(all_bids, key=lambda x: x[1])
 
-                        dcf_diff = results_adjusted['dcf_method']['price'] - results_base['dcf_method']['price']
-                        st.metric(
-                            "DCF Method",
-                            f"€{results_adjusted['dcf_method']['price']:,.0f}",
-                            delta=f"{dcf_diff:+,.0f}"
-                        )
-                        st.caption(f"{results_adjusted['dcf_method']['price_as_pct_of_face']:.1%} of Face")
+                        st.info(f"""
+                        **Three Pricing Approaches Compared:**
 
-                        margin_adjusted = results_adjusted['recommendation'].get('margin')
-                        st.metric(
-                            "Recommended Bid",
-                            f"€{results_adjusted['recommendation']['bid_amount']:,.0f}",
-                            delta=f"{margin_adjusted:.1%} margin" if margin_adjusted is not None else None
-                        )
-                        decision_color = "green" if results_adjusted['recommendation']['decision'] == 'BUY' else "red"
-                        st.markdown(f"<h3 style='color: {decision_color};'>{'✓ BUY' if results_adjusted['recommendation']['decision'] == 'BUY' else '✗ PASS'}</h3>", unsafe_allow_html=True)
+                        🤖 **ML-Based Pricing (€{results_ml['recommendation']['bid_amount']:,.0f}):**
+                        - Uses machine learning default predictions
+                        - Data-driven recovery estimate: {ml_recovery_rate:.2%}
+                        - Best for: Portfolios with rich historical data
 
-                    # Recommendation
-                    st.markdown("---")
-                    st.markdown("### 💡 Recommendation")
-                    if results_adjusted['recommendation']['decision'] != results_base['recommendation']['decision']:
-                        st.warning("⚠️ **Risk adjustment changes the recommendation!**")
+                        🎯 **Traditional Risk-Adjusted (€{results_adjusted['recommendation']['bid_amount']:,.0f}):**
+                        - Uses rule-based red flags detection
+                        - Accounts for statute issues, missing contacts, concentration risk
+                        - Best for: Conservative, compliance-focused buyers
 
-                    st.info(f"""
-                    **Suggested Approach:** Use the **Risk-Adjusted Pricing** (€{results_adjusted['recommendation']['bid_amount']:,.0f}) as it accounts for:
-                    - Portfolio-specific red flags
-                    - Statute of limitations issues
-                    - Contact information quality
-                    - Balance size distribution
-                    - Concentration risk
+                        📊 **Base Rate (€{results_base['recommendation']['bid_amount']:,.0f}):**
+                        - Industry standard recovery rate
+                        - No portfolio-specific adjustments
+                        - Best for: Quick estimates and benchmarking
 
-                    The risk-adjusted bid is **€{abs(bid_diff):,.0f} {('lower' if bid_diff < 0 else 'higher')}** than the standard pricing.
-                    """)
+                        **Price Range:** €{all_bids_sorted[0][1]:,.0f} to €{all_bids_sorted[2][1]:,.0f} (€{all_bids_sorted[2][1] - all_bids_sorted[0][1]:,.0f} spread)
+
+                        **Recommended Strategy:** Use the **ML-Based** or **Traditional Risk-Adjusted** approach, as they incorporate portfolio-specific risk factors.
+                        Consider the average: **€{(results_ml['recommendation']['bid_amount'] + results_adjusted['recommendation']['bid_amount']) / 2:,.0f}**
+                        """)
+
+                    else:
+                        # Two-way comparison (original)
+                        compare_col1, compare_col2 = st.columns(2)
+
+                        with compare_col1:
+                            st.markdown("### 📊 Standard Pricing (Base Rate)")
+                            st.markdown(f"**Recovery Rate:** {base_recovery_rate:.1%}")
+
+                            st.metric("P/C Method", f"€{results_base['pc_method']['price']:,.0f}")
+                            st.caption(f"{results_base['pc_method']['price_as_pct_of_face']:.1%} of Face")
+
+                            st.metric("DCF Method", f"€{results_base['dcf_method']['price']:,.0f}")
+                            st.caption(f"{results_base['dcf_method']['price_as_pct_of_face']:.1%} of Face")
+
+                            margin_base = results_base['recommendation'].get('margin')
+                            st.metric(
+                                "Recommended Bid",
+                                f"€{results_base['recommendation']['bid_amount']:,.0f}",
+                                delta=f"{margin_base:.1%} margin" if margin_base is not None else None
+                            )
+                            decision_color = "green" if results_base['recommendation']['decision'] == 'BUY' else "red"
+                            st.markdown(f"<h3 style='color: {decision_color};'>{'✓ BUY' if results_base['recommendation']['decision'] == 'BUY' else '✗ PASS'}</h3>", unsafe_allow_html=True)
+
+                        with compare_col2:
+                            st.markdown("### 🎯 Traditional Risk-Adjusted Pricing")
+                            st.markdown(f"**Recovery Rate:** {risk_adjusted_recovery_rate:.1%}")
+
+                            pc_diff = results_adjusted['pc_method']['price'] - results_base['pc_method']['price']
+                            st.metric(
+                                "P/C Method",
+                                f"€{results_adjusted['pc_method']['price']:,.0f}",
+                                delta=f"{pc_diff:+,.0f}"
+                            )
+                            st.caption(f"{results_adjusted['pc_method']['price_as_pct_of_face']:.1%} of Face")
+
+                            dcf_diff = results_adjusted['dcf_method']['price'] - results_base['dcf_method']['price']
+                            st.metric(
+                                "DCF Method",
+                                f"€{results_adjusted['dcf_method']['price']:,.0f}",
+                                delta=f"{dcf_diff:+,.0f}"
+                            )
+                            st.caption(f"{results_adjusted['dcf_method']['price_as_pct_of_face']:.1%} of Face")
+
+                            margin_adjusted = results_adjusted['recommendation'].get('margin')
+                            st.metric(
+                                "Recommended Bid",
+                                f"€{results_adjusted['recommendation']['bid_amount']:,.0f}",
+                                delta=f"{margin_adjusted:.1%} margin" if margin_adjusted is not None else None
+                            )
+                            decision_color = "green" if results_adjusted['recommendation']['decision'] == 'BUY' else "red"
+                            st.markdown(f"<h3 style='color: {decision_color};'>{'✓ BUY' if results_adjusted['recommendation']['decision'] == 'BUY' else '✗ PASS'}</h3>", unsafe_allow_html=True)
+
+                        # Recommendation
+                        st.markdown("---")
+                        st.markdown("### 💡 Recommendation")
+                        if results_adjusted['recommendation']['decision'] != results_base['recommendation']['decision']:
+                            st.warning("⚠️ **Risk adjustment changes the recommendation!**")
+
+                        bid_diff = results_adjusted['recommendation']['bid_amount'] - results_base['recommendation']['bid_amount']
+                        st.info(f"""
+                        **Suggested Approach:** Use the **Traditional Risk-Adjusted Pricing** (€{results_adjusted['recommendation']['bid_amount']:,.0f}) as it accounts for:
+                        - Portfolio-specific red flags
+                        - Statute of limitations issues
+                        - Contact information quality
+                        - Balance size distribution
+                        - Concentration risk
+
+                        The risk-adjusted bid is **€{abs(bid_diff):,.0f} {('lower' if bid_diff < 0 else 'higher')}** than the standard pricing.
+                        """)
 
                     # Use risk-adjusted results for detailed display
                     results = results_adjusted
