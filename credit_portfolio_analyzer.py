@@ -814,7 +814,7 @@ def main():
             'utilization_rate': '{:.2%}',
             'default_probability': '{:.2%}',
             'risk_score': '{:.2f}'
-        }).background_gradient(subset=['default_probability'], cmap='Reds'),
+        }),
         use_container_width=True
     )
 
@@ -1627,6 +1627,21 @@ def debt_collection_pricing_app(df=None, portfolio_name=None):
 
                 monthly_schedule = pricer.create_monthly_schedule(custom_curve)
 
+                # Store all data needed for PDF generation in session state
+                st.session_state.pdf_data = {
+                    'portfolio_name': portfolio_name,
+                    'face_value': face_value,
+                    'recovery_rate': recovery_rate,
+                    'results': results,
+                    'monthly_schedule': monthly_schedule,
+                    'portfolio_type': portfolio_type,
+                    'servicing_costs': servicing_costs,
+                    'target_irr': target_irr,
+                    'composition': composition,
+                    'red_flags': red_flags,
+                    'erc_analysis': erc_analysis
+                }
+
                 # Plot cumulative collections
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(
@@ -1668,30 +1683,37 @@ def debt_collection_pricing_app(df=None, portfolio_name=None):
                     st.session_state.pdf_filename = None
 
                 if st.button("📥 Generate PDF Report", type="primary", use_container_width=True, key="gen_pdf_btn"):
-                    with st.spinner("Generating comprehensive PDF report..."):
-                        try:
-                            # Generate PDF
-                            pdf_buffer = create_debt_pricing_pdf(
-                                portfolio_name=portfolio_name,
-                                face_value=face_value,
-                                recovery_rate=recovery_rate,
-                                results=results,
-                                monthly_schedule=monthly_schedule,
-                                portfolio_type=portfolio_type,
-                                servicing_costs=servicing_costs,
-                                target_irr=target_irr,
-                                composition=composition,
-                                red_flags=red_flags,
-                                erc_analysis=erc_analysis
-                            )
+                    # Check if pricing data exists in session state
+                    if 'pdf_data' in st.session_state and st.session_state.pdf_data is not None:
+                        with st.spinner("Generating comprehensive PDF report..."):
+                            try:
+                                # Get data from session state
+                                pdf_data = st.session_state.pdf_data
 
-                            # Store in session state
-                            st.session_state.pdf_buffer = pdf_buffer.getvalue()
-                            st.session_state.pdf_filename = f"Debt_Pricing_Report_{portfolio_name}_{datetime.now().strftime('%Y%m%d')}.pdf"
-                            st.success("✅ PDF report generated successfully!")
-                        except Exception as e:
-                            st.error(f"Error generating PDF: {str(e)}")
-                            st.session_state.pdf_buffer = None
+                                # Generate PDF
+                                pdf_buffer = create_debt_pricing_pdf(
+                                    portfolio_name=pdf_data['portfolio_name'],
+                                    face_value=pdf_data['face_value'],
+                                    recovery_rate=pdf_data['recovery_rate'],
+                                    results=pdf_data['results'],
+                                    monthly_schedule=pdf_data['monthly_schedule'],
+                                    portfolio_type=pdf_data['portfolio_type'],
+                                    servicing_costs=pdf_data['servicing_costs'],
+                                    target_irr=pdf_data['target_irr'],
+                                    composition=pdf_data['composition'],
+                                    red_flags=pdf_data['red_flags'],
+                                    erc_analysis=pdf_data['erc_analysis']
+                                )
+
+                                # Store in session state
+                                st.session_state.pdf_buffer = pdf_buffer.getvalue()
+                                st.session_state.pdf_filename = f"Debt_Pricing_Report_{pdf_data['portfolio_name']}_{datetime.now().strftime('%Y%m%d')}.pdf"
+                                st.success("✅ PDF report generated successfully!")
+                            except Exception as e:
+                                st.error(f"Error generating PDF: {str(e)}")
+                                st.session_state.pdf_buffer = None
+                    else:
+                        st.warning("⚠️ Please calculate pricing first before generating the PDF report.")
 
                 # Show download button if PDF is ready
                 if st.session_state.pdf_buffer is not None:
