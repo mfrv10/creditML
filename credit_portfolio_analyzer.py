@@ -865,10 +865,10 @@ def debt_collection_pricing_app():
                     st.metric("Target IRR", f"{target_irr:.1%}")
 
                 with irr_col3:
-                    margin_value = results['recommendation']['margin']
+                    margin_value = results['recommendation'].get('margin')
                     st.metric(
                         "Margin",
-                        f"{margin_value:+.1%}" if margin_value else "N/A",
+                        f"{margin_value:+.1%}" if margin_value is not None else "N/A",
                         delta="Above Target" if margin_value and margin_value > 0 else "Below Target"
                     )
 
