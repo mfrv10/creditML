@@ -1433,32 +1433,48 @@ def debt_collection_pricing_app(df=None, portfolio_name=None):
                 st.markdown("---")
                 st.markdown("### 📄 Download Comprehensive Report")
 
-                if st.button("📥 Generate PDF Report", type="primary", use_container_width=True):
-                    with st.spinner("Generating comprehensive PDF report..."):
-                        # Generate PDF
-                        pdf_buffer = create_debt_pricing_pdf(
-                            portfolio_name=portfolio_name,
-                            face_value=face_value,
-                            recovery_rate=recovery_rate,
-                            results=results,
-                            monthly_schedule=monthly_schedule,
-                            portfolio_type=portfolio_type,
-                            servicing_costs=servicing_costs,
-                            target_irr=target_irr,
-                            composition=composition if use_comparison else None,
-                            red_flags=red_flags if use_comparison else None,
-                            erc_analysis=erc_analysis if use_comparison else None
-                        )
+                # Initialize PDF buffer in session state
+                if 'pdf_buffer' not in st.session_state:
+                    st.session_state.pdf_buffer = None
+                if 'pdf_filename' not in st.session_state:
+                    st.session_state.pdf_filename = None
 
-                        # Offer download
-                        st.download_button(
-                            label="⬇️ Download PDF Report",
-                            data=pdf_buffer,
-                            file_name=f"Debt_Pricing_Report_{portfolio_name}_{datetime.now().strftime('%Y%m%d')}.pdf",
-                            mime="application/pdf",
-                            use_container_width=True
-                        )
-                        st.success("✅ PDF report generated successfully!")
+                if st.button("📥 Generate PDF Report", type="primary", use_container_width=True, key="gen_pdf_btn"):
+                    with st.spinner("Generating comprehensive PDF report..."):
+                        try:
+                            # Generate PDF
+                            pdf_buffer = create_debt_pricing_pdf(
+                                portfolio_name=portfolio_name,
+                                face_value=face_value,
+                                recovery_rate=recovery_rate,
+                                results=results,
+                                monthly_schedule=monthly_schedule,
+                                portfolio_type=portfolio_type,
+                                servicing_costs=servicing_costs,
+                                target_irr=target_irr,
+                                composition=composition,
+                                red_flags=red_flags,
+                                erc_analysis=erc_analysis
+                            )
+
+                            # Store in session state
+                            st.session_state.pdf_buffer = pdf_buffer.getvalue()
+                            st.session_state.pdf_filename = f"Debt_Pricing_Report_{portfolio_name}_{datetime.now().strftime('%Y%m%d')}.pdf"
+                            st.success("✅ PDF report generated successfully!")
+                        except Exception as e:
+                            st.error(f"Error generating PDF: {str(e)}")
+                            st.session_state.pdf_buffer = None
+
+                # Show download button if PDF is ready
+                if st.session_state.pdf_buffer is not None:
+                    st.download_button(
+                        label="⬇️ Download PDF Report",
+                        data=st.session_state.pdf_buffer,
+                        file_name=st.session_state.pdf_filename,
+                        mime="application/pdf",
+                        use_container_width=True,
+                        key="download_pdf_btn"
+                    )
 
     with tab2:
         st.markdown("### Compare Multiple Portfolios")
