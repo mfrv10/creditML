@@ -44,3 +44,6 @@ src/__pycache__/irr_calculator.cpython-313.pyc
 src/__pycache__/ml_models.cpython-313.pyc
 src/__pycache__/cash_flow_projector.cpython-313.pyc
 src/__pycache__/__init__.cpython-313.pyc
+src/__pycache__/file_parser.cpython-313.pyc
+src/__pycache__/ml_models.cpython-313.pyc
+src/__pycache__/portfolio_metrics.cpython-313.pyc

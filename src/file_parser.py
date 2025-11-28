@@ -302,19 +302,61 @@ class CreditFileParser:
     
     def _clean_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """Clean and validate data"""
-        # Convert numeric columns
-        numeric_patterns = ['amount', 'amt', 'limit', 'balance', 'pay_']
+        # Convert numeric columns - but exclude status/text columns
+        numeric_patterns = ['amount', 'amt', 'limit', 'balance']
+        # Exclude these patterns (they're usually text/status columns)
+        exclude_patterns = ['status', 'type', 'category', 'description', 'name', 'id']
         
         for col in df.columns:
-            if any(pattern in col.lower() for pattern in numeric_patterns):
+            col_lower = col.lower()
+            
+            # Skip if it's a status/text column
+            if any(exclude_pattern in col_lower for exclude_pattern in exclude_patterns):
+                continue
+            
+            # Only convert if it matches numeric patterns
+            if any(pattern in col_lower for pattern in numeric_patterns):
                 try:
-                    # Ensure we're working with a Series
                     col_data = df[col]
                     if isinstance(col_data, pd.Series):
+                        # Check if column is already numeric
+                        if pd.api.types.is_numeric_dtype(col_data):
+                            continue
+                        
+                        # Try to convert, but check if it's mostly numeric first
+                        # Count non-null, non-numeric values
+                        sample_size = min(100, len(col_data))
+                        sample = col_data.head(sample_size)
+                        
+                        # If column contains mostly text values, skip conversion
+                        non_numeric_count = 0
+                        for val in sample:
+                            if pd.notna(val) and not isinstance(val, (int, float)):
+                                try:
+                                    float(val)
+                                except (ValueError, TypeError):
+                                    non_numeric_count += 1
+                        
+                        # If more than 20% are non-numeric strings, skip this column
+                        if non_numeric_count > sample_size * 0.2:
+                            continue
+                        
+                        # Try conversion with coerce (converts non-numeric to NaN)
                         df[col] = pd.to_numeric(col_data, errors='coerce').fillna(0)
                 except Exception as e:
                     # If conversion fails, leave column as-is
                     print(f"Warning: Could not convert column '{col}' to numeric: {e}")
+                    continue
+            
+            # Handle payment history columns (pay_0, pay_1, etc.) - these should be numeric
+            elif col_lower.startswith('pay_') and col_lower not in ['pay_status', 'payment_status']:
+                try:
+                    col_data = df[col]
+                    if isinstance(col_data, pd.Series):
+                        # Payment history columns should be numeric (-1, 0, 1, 2, etc.)
+                        df[col] = pd.to_numeric(col_data, errors='coerce').fillna(0)
+                except Exception as e:
+                    print(f"Warning: Could not convert payment column '{col}' to numeric: {e}")
                     continue
         
         # Handle missing values for demographic columns

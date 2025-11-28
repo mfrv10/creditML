@@ -137,11 +137,35 @@ class CreditRiskModel:
             features['utilization_rate'] = 0.5
         
         # Payment behavior features
-        pay_cols = [c for c in df.columns if 'pay_status' in c.lower()]
+        # Look for numeric payment history columns (pay_0, pay_1, pay_2, etc.)
+        # These are different from payment_status columns which may contain text
+        pay_cols = []
+        for c in df.columns:
+            col_lower = c.lower()
+            # Match payment history columns (pay_0, pay_1, pay_2, etc.) but not payment_status
+            if (col_lower.startswith('pay_') and col_lower != 'pay_status' and 
+                'payment_status' not in col_lower and
+                pd.api.types.is_numeric_dtype(df[c])):
+                pay_cols.append(c)
+        
+        # Also check for payment_history columns
+        if not pay_cols:
+            pay_cols = [c for c in df.columns if 'payment_history' in c.lower() and pd.api.types.is_numeric_dtype(df[c])]
+        
         if pay_cols:
-            features['avg_payment_status'] = df[pay_cols].mean(axis=1)
-            features['max_payment_status'] = df[pay_cols].max(axis=1)
-            features['payment_trend'] = df[pay_cols].iloc[:, 0] - df[pay_cols].iloc[:, -1]
+            # Only use numeric columns
+            numeric_pay_cols = [c for c in pay_cols if pd.api.types.is_numeric_dtype(df[c])]
+            if numeric_pay_cols:
+                features['avg_payment_status'] = df[numeric_pay_cols].mean(axis=1)
+                features['max_payment_status'] = df[numeric_pay_cols].max(axis=1)
+                if len(numeric_pay_cols) > 1:
+                    features['payment_trend'] = df[numeric_pay_cols].iloc[:, 0] - df[numeric_pay_cols].iloc[:, -1]
+                else:
+                    features['payment_trend'] = 0
+            else:
+                features['avg_payment_status'] = 0
+                features['max_payment_status'] = 0
+                features['payment_trend'] = 0
         else:
             features['avg_payment_status'] = 0
             features['max_payment_status'] = 0
@@ -224,12 +248,26 @@ class CreditRiskModel:
             utilization = bill_amount_1 / (credit_limit + 1)
             scores += utilization.clip(0, 1) * 0.4
 
-        # Payment status penalty
-        pay_cols = [c for c in df.columns if 'pay_status' in c.lower()]
+        # Payment status penalty (only use numeric payment history columns)
+        pay_cols = []
+        for c in df.columns:
+            col_lower = c.lower()
+            # Match payment history columns (pay_0, pay_1, pay_2, etc.) but not payment_status
+            if (col_lower.startswith('pay_') and col_lower != 'pay_status' and 
+                'payment_status' not in col_lower and
+                pd.api.types.is_numeric_dtype(df[c])):
+                pay_cols.append(c)
+        
+        if not pay_cols:
+            pay_cols = [c for c in df.columns if 'payment_history' in c.lower() and pd.api.types.is_numeric_dtype(df[c])]
+        
         if pay_cols:
-            avg_pay_status = df[pay_cols].mean(axis=1)
-            # Higher payment status means more delinquent
-            scores += (avg_pay_status / 6).clip(0, 1) * 0.5
+            # Only use numeric columns
+            numeric_pay_cols = [c for c in pay_cols if pd.api.types.is_numeric_dtype(df[c])]
+            if numeric_pay_cols:
+                avg_pay_status = df[numeric_pay_cols].mean(axis=1)
+                # Higher payment status means more delinquent
+                scores += (avg_pay_status / 6).clip(0, 1) * 0.5
 
         # Age factor (younger = slightly riskier)
         age = safe_get_column(df, 'age')

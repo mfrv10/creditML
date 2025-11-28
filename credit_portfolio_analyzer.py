@@ -450,6 +450,10 @@ def main():
         # STEP 2: Choose Analysis Path
         st.markdown("## 🎯 STEP 2: Choose Analysis Path")
 
+        # Initialize mode in session state if not set
+        if 'analysis_mode' not in st.session_state:
+            st.session_state.analysis_mode = None
+
         col1, col2 = st.columns(2)
 
         with col1:
@@ -466,7 +470,8 @@ def main():
             *Best for: Active loan portfolio management*
             """)
             if st.button("📊 Analyze Active Portfolio", type="primary", use_container_width=True):
-                mode = "📊 Active Portfolio Analysis"
+                st.session_state.analysis_mode = "📊 Active Portfolio Analysis"
+                st.rerun()
 
         with col2:
             st.markdown("""
@@ -482,20 +487,30 @@ def main():
             *Best for: Purchasing NPL portfolios*
             """)
             if st.button("💰 Price Debt Portfolio", type="primary", use_container_width=True):
-                mode = "💰 Debt Collection Pricing"
+                st.session_state.analysis_mode = "💰 Debt Collection Pricing"
+                st.rerun()
 
-        # Traditional mode selector (for navigation)
-        st.markdown("---")
-        mode = st.radio(
-            "Or use quick selector:",
-            ["📊 Active Portfolio Analysis", "💰 Debt Collection Pricing"],
-            horizontal=True,
-            label_visibility="collapsed"
-        )
+        # Use session state mode
+        mode = st.session_state.analysis_mode if st.session_state.analysis_mode else "📊 Active Portfolio Analysis"
 
     else:
         st.info("👆 Upload a credit portfolio file to begin")
         st.stop()
+
+    # Show mode switcher at top if mode is already selected
+    if st.session_state.analysis_mode:
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            current_mode_icon = "📊" if mode == "📊 Active Portfolio Analysis" else "💰"
+            st.caption(f"Current Mode: {current_mode_icon} {mode}")
+        with col2:
+            if st.button("🔄 Switch Mode", use_container_width=True):
+                # Toggle to the other mode
+                if mode == "📊 Active Portfolio Analysis":
+                    st.session_state.analysis_mode = "💰 Debt Collection Pricing"
+                else:
+                    st.session_state.analysis_mode = "📊 Active Portfolio Analysis"
+                st.rerun()
 
     if mode == "💰 Debt Collection Pricing":
         debt_collection_pricing_app(
@@ -1169,7 +1184,28 @@ def debt_collection_pricing_app(df=None, portfolio_name=None):
                     custom_pc_ratio = None
 
             except Exception as e:
-                st.error(f"Error loading file: {str(e)}")
+                error_msg = str(e)
+                # Provide more helpful error message for common issues
+                if "Could not convert" in error_msg and "to numeric" in error_msg:
+                    st.error(f"❌ **Data Type Error**: {error_msg}")
+                    st.info("""
+                    **💡 Solution**: Your file contains a column with mixed data types (text and numbers).
+                    
+                    Common causes:
+                    - Payment status columns with values like 'Fully Paid', 'Current', etc. mixed with numbers
+                    - Account status columns with text values
+                    
+                    **How to fix**:
+                    1. Check your file for columns with mixed text/numeric values
+                    2. Either clean the data (convert all values to one type) or
+                    3. Use manual entry mode instead of file upload
+                    """)
+                else:
+                    st.error(f"❌ Error loading file: {error_msg}")
+                    with st.expander("🔍 View Full Error Details"):
+                        import traceback
+                        st.code(traceback.format_exc())
+                
                 face_value = None
                 use_comparison = False
                 custom_curve = None
@@ -1672,68 +1708,50 @@ def debt_collection_pricing_app(df=None, portfolio_name=None):
                     use_container_width=True
                 )
 
-                # PDF Report Generation
+                # PDF Report Generation (same pattern as Active Portfolio Analysis)
                 st.markdown("---")
                 st.markdown("### 📄 Download Comprehensive Report")
 
-                # Initialize PDF buffer in session state
-                if 'pdf_buffer' not in st.session_state:
-                    st.session_state.pdf_buffer = None
-                if 'pdf_filename' not in st.session_state:
-                    st.session_state.pdf_filename = None
-
-                # Check if pricing data exists and show status
+                # Check if pricing data exists
                 has_pdf_data = 'pdf_data' in st.session_state and st.session_state.pdf_data is not None
                 
-                if not has_pdf_data:
+                if has_pdf_data:
+                    try:
+                        # Get data from session state
+                        pdf_data = st.session_state.pdf_data
+                        
+                        # Generate PDF directly (like in Active Portfolio Analysis)
+                        pdf_buffer = create_debt_pricing_pdf(
+                            portfolio_name=pdf_data['portfolio_name'],
+                            face_value=pdf_data['face_value'],
+                            recovery_rate=pdf_data['recovery_rate'],
+                            results=pdf_data['results'],
+                            monthly_schedule=pdf_data['monthly_schedule'],
+                            portfolio_type=pdf_data['portfolio_type'],
+                            servicing_costs=pdf_data['servicing_costs'],
+                            target_irr=pdf_data['target_irr'],
+                            composition=pdf_data['composition'],
+                            red_flags=pdf_data['red_flags'],
+                            erc_analysis=pdf_data['erc_analysis']
+                        )
+                        
+                        # Show download button immediately (same as Active Portfolio Analysis)
+                        st.download_button(
+                            label="📄 Download PDF Report",
+                            data=pdf_buffer,
+                            file_name=f"Debt_Pricing_Report_{pdf_data['portfolio_name']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True,
+                            key="download_pdf_btn"
+                        )
+                        
+                    except Exception as e:
+                        import traceback
+                        st.error(f"❌ Error generating PDF: {str(e)}")
+                        with st.expander("🔍 View Error Details"):
+                            st.code(traceback.format_exc())
+                else:
                     st.info("ℹ️ Please calculate pricing first using the '💰 Calculate Pricing' button above to generate the PDF report.")
-                
-                if st.button("📥 Generate PDF Report", type="primary", use_container_width=True, key="gen_pdf_btn", disabled=not has_pdf_data):
-                    if has_pdf_data:
-                        with st.spinner("Generating comprehensive PDF report..."):
-                            try:
-                                # Get data from session state
-                                pdf_data = st.session_state.pdf_data
-
-                                # Generate PDF
-                                pdf_buffer = create_debt_pricing_pdf(
-                                    portfolio_name=pdf_data['portfolio_name'],
-                                    face_value=pdf_data['face_value'],
-                                    recovery_rate=pdf_data['recovery_rate'],
-                                    results=pdf_data['results'],
-                                    monthly_schedule=pdf_data['monthly_schedule'],
-                                    portfolio_type=pdf_data['portfolio_type'],
-                                    servicing_costs=pdf_data['servicing_costs'],
-                                    target_irr=pdf_data['target_irr'],
-                                    composition=pdf_data['composition'],
-                                    red_flags=pdf_data['red_flags'],
-                                    erc_analysis=pdf_data['erc_analysis']
-                                )
-
-                                # Store in session state
-                                st.session_state.pdf_buffer = pdf_buffer.getvalue()
-                                st.session_state.pdf_filename = f"Debt_Pricing_Report_{pdf_data['portfolio_name']}_{datetime.now().strftime('%Y%m%d')}.pdf"
-                                st.success("✅ PDF report generated successfully!")
-                                st.rerun()  # Rerun to show download button
-                            except Exception as e:
-                                import traceback
-                                error_details = traceback.format_exc()
-                                st.error(f"❌ Error generating PDF: {str(e)}")
-                                st.exception(e)  # Show full traceback
-                                st.session_state.pdf_buffer = None
-                    else:
-                        st.warning("⚠️ Please calculate pricing first before generating the PDF report.")
-
-                # Show download button if PDF is ready
-                if st.session_state.pdf_buffer is not None:
-                    st.download_button(
-                        label="⬇️ Download PDF Report",
-                        data=st.session_state.pdf_buffer,
-                        file_name=st.session_state.pdf_filename,
-                        mime="application/pdf",
-                        use_container_width=True,
-                        key="download_pdf_btn"
-                    )
 
     with tab2:
         st.markdown("### Compare Multiple Portfolios")

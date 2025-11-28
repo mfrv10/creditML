@@ -128,18 +128,33 @@ class PortfolioAnalyzer:
         
         ratios['Over-limit %'] = (self.df['utilization_rate'] > 1.0).sum() / len(self.df)
         
-        # Delinquency metrics (if available)
-        pay_cols = [c for c in self.df.columns if 'pay_status' in c.lower()]
+        # Delinquency metrics (if available) - only use numeric payment history columns
+        pay_cols = []
+        for c in self.df.columns:
+            col_lower = c.lower()
+            # Match payment history columns (pay_0, pay_1, pay_2, etc.) but not payment_status
+            if (col_lower.startswith('pay_') and col_lower != 'pay_status' and 
+                'payment_status' not in col_lower and
+                pd.api.types.is_numeric_dtype(self.df[c])):
+                pay_cols.append(c)
+        
+        # Also check for payment_history columns
+        if not pay_cols:
+            pay_cols = [c for c in self.df.columns if 'payment_history' in c.lower() and pd.api.types.is_numeric_dtype(self.df[c])]
+        
         if pay_cols:
-            ratios['30+ Days Past Due %'] = (
-                (self.df[pay_cols[0]] >= 1).sum() / len(self.df)
-            )
-            ratios['60+ Days Past Due %'] = (
-                (self.df[pay_cols[0]] >= 2).sum() / len(self.df)
-            )
-            ratios['90+ Days Past Due %'] = (
-                (self.df[pay_cols[0]] >= 3).sum() / len(self.df)
-            )
+            # Use the first numeric payment column
+            pay_col = pay_cols[0]
+            if pd.api.types.is_numeric_dtype(self.df[pay_col]):
+                ratios['30+ Days Past Due %'] = (
+                    (self.df[pay_col] >= 1).sum() / len(self.df)
+                )
+                ratios['60+ Days Past Due %'] = (
+                    (self.df[pay_col] >= 2).sum() / len(self.df)
+                )
+                ratios['90+ Days Past Due %'] = (
+                    (self.df[pay_col] >= 3).sum() / len(self.df)
+                )
         
         # Age distribution
         if 'age' in self.df.columns:
