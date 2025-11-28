@@ -638,58 +638,143 @@ def debt_collection_pricing_app():
     ])
 
     with tab1:
-        st.markdown("### Portfolio Parameters")
+        st.markdown("### Portfolio Pricing")
 
-        col1, col2, col3 = st.columns(3)
+        # Option to upload portfolio file or enter manually
+        input_method = st.radio(
+            "Input Method:",
+            ["📁 Upload Portfolio File", "✍️ Manual Entry"],
+            horizontal=True
+        )
 
-        with col1:
-            portfolio_name = st.text_input("Portfolio Name", value="Spain Consumer Portfolio Nov 2025")
-            face_value = st.number_input(
-                "Face Value (€)",
-                min_value=100_000,
-                max_value=1_000_000_000,
-                value=50_000_000,
-                step=1_000_000,
-                format="%d"
+        if input_method == "📁 Upload Portfolio File":
+            # File upload for automatic calculation
+            st.markdown("#### Upload Portfolio Data")
+            uploaded_portfolio = st.file_uploader(
+                "Upload Portfolio File (CSV/Excel)",
+                type=['csv', 'xlsx', 'xls'],
+                key="pricing_upload"
             )
 
-        with col2:
-            recovery_rate = st.slider(
-                "Recovery Rate (%)",
-                min_value=10,
-                max_value=60,
-                value=30,
-                step=5,
-                help="Expected % of face value to collect"
-            ) / 100
+            if uploaded_portfolio is not None:
+                try:
+                    # Load portfolio data
+                    if uploaded_portfolio.name.endswith('.csv'):
+                        df_portfolio = pd.read_csv(uploaded_portfolio)
+                    else:
+                        df_portfolio = pd.read_excel(uploaded_portfolio)
 
-            # Option to use custom P/C ratio
-            use_custom_pc = st.checkbox("Use Custom P/C Ratio")
-            if use_custom_pc:
-                custom_pc_ratio = st.slider("Custom P/C Ratio (%)", 20, 80, 50, 5) / 100
+                    st.success(f"✅ Loaded {len(df_portfolio):,} accounts")
+
+                    # Auto-detect balance column
+                    balance_cols = [col for col in df_portfolio.columns
+                                  if any(term in col.lower() for term in ['balance', 'amount', 'principal', 'outstanding'])]
+
+                    if balance_cols:
+                        balance_col = st.selectbox("Select Balance Column:", balance_cols, index=0)
+
+                        # Calculate face value from data
+                        auto_face_value = df_portfolio[balance_col].sum()
+
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("Calculated Face Value", f"€{auto_face_value:,.0f}")
+                            st.caption(f"From {len(df_portfolio):,} accounts")
+
+                        with col2:
+                            # Optional: Auto-calculate recovery rate from defaults (if available)
+                            default_cols = [col for col in df_portfolio.columns
+                                          if 'default' in col.lower() or 'status' in col.lower()]
+
+                            if default_cols:
+                                st.write("Default data detected - can estimate recovery rate")
+
+                        # Use auto-calculated value
+                        face_value = auto_face_value
+                        portfolio_name = uploaded_portfolio.name.replace('.csv', '').replace('.xlsx', '').replace('.xls', '')
+
+                        # Allow user to adjust recovery rate
+                        recovery_rate = st.slider(
+                            "Recovery Rate (%)",
+                            min_value=10,
+                            max_value=60,
+                            value=30,
+                            step=5,
+                            help="Expected % of face value to collect",
+                            key="file_recovery"
+                        ) / 100
+
+                    else:
+                        st.error("Could not find balance/amount column in file. Please select manual entry.")
+                        face_value = None
+
+                except Exception as e:
+                    st.error(f"Error loading file: {str(e)}")
+                    face_value = None
             else:
-                custom_pc_ratio = None
+                st.info("👆 Upload a portfolio file to automatically calculate face value")
+                face_value = None
 
-        with col3:
-            # Option to use custom collection curve
-            use_custom_curve = st.checkbox("Use Custom Collection Curve")
-            if use_custom_curve:
-                st.markdown("**Collection % by Year:**")
-                year1 = st.slider("Year 1 (%)", 20, 70, 40, 5) / 100
-                year2 = st.slider("Year 2 (%)", 10, 50, 30, 5) / 100
-                year3 = st.slider("Year 3 (%)", 5, 40, 20, 5) / 100
-                year4 = st.slider("Year 4 (%)", 0, 30, 10, 5) / 100
+        else:
+            # Manual entry (original implementation)
+            st.markdown("#### Manual Parameters")
 
-                total_pct = (year1 + year2 + year3 + year4) * 100
-                if abs(total_pct - 100) > 0.01:
-                    st.warning(f"⚠️ Total: {total_pct:.0f}% (should be 100%)")
+            col1, col2, col3 = st.columns(3)
 
-                custom_curve = {1: year1, 2: year2, 3: year3, 4: year4}
-            else:
-                custom_curve = None
+            with col1:
+                portfolio_name = st.text_input("Portfolio Name", value="Spain Consumer Portfolio Nov 2025")
+                face_value = st.number_input(
+                    "Face Value (€)",
+                    min_value=100_000,
+                    max_value=1_000_000_000,
+                    value=50_000_000,
+                    step=1_000_000,
+                    format="%d"
+                )
 
-        # Calculate button
-        if st.button("💰 Calculate Pricing", type="primary", use_container_width=True):
+            with col2:
+                recovery_rate = st.slider(
+                    "Recovery Rate (%)",
+                    min_value=10,
+                    max_value=60,
+                    value=30,
+                    step=5,
+                    help="Expected % of face value to collect"
+                ) / 100
+
+                # Option to use custom P/C ratio
+                use_custom_pc = st.checkbox("Use Custom P/C Ratio")
+                if use_custom_pc:
+                    custom_pc_ratio = st.slider("Custom P/C Ratio (%)", 20, 80, 50, 5) / 100
+                else:
+                    custom_pc_ratio = None
+
+            with col3:
+                # Option to use custom collection curve
+                use_custom_curve = st.checkbox("Use Custom Collection Curve")
+                if use_custom_curve:
+                    st.markdown("**Collection % by Year:**")
+                    year1 = st.slider("Year 1 (%)", 20, 70, 40, 5) / 100
+                    year2 = st.slider("Year 2 (%)", 10, 50, 30, 5) / 100
+                    year3 = st.slider("Year 3 (%)", 5, 40, 20, 5) / 100
+                    year4 = st.slider("Year 4 (%)", 0, 30, 10, 5) / 100
+
+                    total_pct = (year1 + year2 + year3 + year4) * 100
+                    if abs(total_pct - 100) > 0.01:
+                        st.warning(f"⚠️ Total: {total_pct:.0f}% (should be 100%)")
+
+                    custom_curve = {1: year1, 2: year2, 3: year3, 4: year4}
+                else:
+                    custom_curve = None
+
+        # Common section for both file upload and manual entry
+        # Set defaults for optional parameters if not set by file upload
+        if input_method == "📁 Upload Portfolio File":
+            custom_pc_ratio = None
+            custom_curve = None
+
+        # Calculate button (only show if we have data)
+        if face_value is not None and st.button("💰 Calculate Pricing", type="primary", use_container_width=True):
             with st.spinner("Calculating pricing..."):
                 # Initialize pricer
                 pricer = DebtPortfolioPricer(
@@ -726,10 +811,11 @@ def debt_collection_pricing_app():
                     st.caption(f"{results['dcf_method']['price_as_pct_of_face']:.1%} of Face")
 
                 with col4:
+                    margin_value = results['recommendation'].get('margin')
                     st.metric(
                         "RECOMMENDED BID",
                         f"€{results['recommendation']['bid_amount']:,.0f}",
-                        delta=f"{results['recommendation']['margin']:.1%} vs Target IRR" if results['recommendation']['margin'] else None
+                        delta=f"{margin_value:.1%} vs Target IRR" if margin_value is not None else None
                     )
                     decision_color = "green" if results['recommendation']['decision'] == 'BUY' else "red"
                     st.markdown(f"<h3 style='color: {decision_color};'>{'✓ BUY' if results['recommendation']['decision'] == 'BUY' else '✗ PASS'}</h3>", unsafe_allow_html=True)
